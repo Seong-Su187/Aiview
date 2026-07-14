@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import health, profiles, interviews
+from routers import health, profiles, interviews, auth
 
 app = FastAPI(
     title="AI 면접 도우미 백엔드 API",
@@ -20,5 +20,6 @@ app.add_middleware(
 
 # 세분화된 도메인별 라우터 등록 (Controller 연결)
 app.include_router(health.router)
+app.include_router(auth.router)       # 로그인/회원가입 라우터 추가
 app.include_router(profiles.router)
 app.include_router(interviews.router)
