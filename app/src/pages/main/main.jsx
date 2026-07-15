@@ -97,7 +97,7 @@ function Main({ mainVideoUrl }) {
 
                         <p className={`main-actions main-message-item ${messageStep >= 4 ? 'visible' : ''}`} >
                             {isLoggedIn ? (
-                                <div className="main-buttons">
+                                <p className="main-buttons">
                                     <button
                                         type="button"
                                         className="main-button primary"
@@ -113,7 +113,7 @@ function Main({ mainVideoUrl }) {
                                     >
                                         로그아웃
                                     </button>
-                                </div>
+                                </p>
                             ) : (
                                 <button
                                     type="button"
