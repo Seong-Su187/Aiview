@@ -575,6 +575,8 @@ async def process_interview_audio(
 async def text_to_speech(text_payload: dict):
     """텍스트와 아바타 종류("young" | "middle_aged")를 받아 그에 맞는 목소리의 음성 파일(mp3)로 반환"""
     text = text_payload.get("text", "")
+    avatar = text_payload.get("avatar", "middle_aged")
+    voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
     file_id = uuid.uuid4()
     temp_path = f"temp_tts_{file_id}.mp3"
     try:
