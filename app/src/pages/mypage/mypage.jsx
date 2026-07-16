@@ -400,6 +400,12 @@ function MyPage() {
             / values.length;
     };
 
+    const calculateInvertedAverage = (logs, key) => {
+        const average = calculateAverage(logs, key);
+
+        return average === null ? null : -average;
+    };
+
     const interviewMetrics = useMemo(() => {
         return [...sessions]
             .sort((a, b) => (
@@ -415,12 +421,12 @@ function MyPage() {
                     'score',
                 ),
 
-                averageVoice: calculateAverage(
+                averageVoice: calculateInvertedAverage(
                     session.qaLogs,
                     'jitter_shaken_percentage',
                 ),
 
-                averageVolume: calculateAverage(
+                averageVolume: calculateInvertedAverage(
                     session.qaLogs,
                     'shimmer_shaken_percentage',
                 ),
@@ -494,7 +500,23 @@ function MyPage() {
             ) : (
                 <div className="mypage-layout">
                     <aside className="mypage-session-list">
-                        <h2>면접 기록</h2>
+                        <span className="mypage-session-list-header">
+                            <h2>면접 기록</h2>
+                            <button
+                                type="button"
+                                className="mypage-main-button"
+                                onClick={() => {
+                                    setTimeout(() => {
+                                        window.scrollTo({
+                                            top: 0,
+                                            behavior: 'smooth',
+                                        });
+                                    }, 0);
+                                }}
+                            >
+                                그래프
+                            </button>
+                        </span>
 
                         {sessions.map((session, index) => (
                             <button

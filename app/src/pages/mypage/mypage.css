@@ -80,6 +80,15 @@
     box-shadow: 0 8px 24px rgba(31, 58, 44, 0.06);
 }
 
+.mypage-session-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    margin-bottom: 18px;
+}
+
 .mypage-session-list h2 {
     margin: 0 0 18px;
 
