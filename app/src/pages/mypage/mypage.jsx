@@ -5,6 +5,291 @@ import API_BASE_URL from '../../config/apiConfig';
 import '../../index.css';
 import './mypage.css';
 
+const CHART_SERIES = [
+    {
+        key: 'averageScore',
+        label: '평균 점수',
+        unit: '점',
+        fixed: 1,
+        className: 'score',
+    },
+    {
+        key: 'averageVoice',
+        label: '평균 목소리',
+        unit: '%',
+        fixed: 2,
+        className: 'voice',
+    },
+    {
+        key: 'averageVolume',
+        label: '평균 음량',
+        unit: '%',
+        fixed: 2,
+        className: 'volume',
+    },
+    {
+        key: 'averageWpm',
+        label: '평균 속도',
+        unit: 'wpm',
+        fixed: 0,
+        className: 'wpm',
+    },
+];
+
+function InterviewAverageChart({ data }) {
+    const width = 1000;
+    const height = 360;
+
+    const padding = {
+        top: 40,
+        right: 40,
+        bottom: 55,
+        left: 55,
+    };
+
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const getX = (index) => {
+        if (data.length === 1) {
+            return padding.left + chartWidth / 2;
+        }
+
+        return padding.left
+            + (index / (data.length - 1)) * chartWidth;
+    };
+
+    /*
+     * 지표별 최솟값과 최댓값을 사용해 0~100으로 정규화합니다.
+     * 실제 평균값은 point.rawValue에 그대로 보관합니다.
+     */
+    const normalizedSeries = CHART_SERIES.map((series) => {
+        const validValues = data
+            .map((item) => item[series.key])
+            .filter((value) => Number.isFinite(value));
+
+        if (validValues.length === 0) {
+            return {
+                ...series,
+                points: [],
+            };
+        }
+
+        const minValue = Math.min(...validValues);
+        const maxValue = Math.max(...validValues);
+        const range = maxValue - minValue;
+
+        const points = data
+            .map((item, index) => {
+                const rawValue = item[series.key];
+
+                if (!Number.isFinite(rawValue)) {
+                    return null;
+                }
+
+                /*
+                 * 모든 값이 같으면 그래프 중앙에 표시합니다.
+                 */
+                const normalizedValue = range === 0
+                    ? 50
+                    : ((rawValue - minValue) / range) * 100;
+
+                const x = getX(index);
+                const y = padding.top
+                    + chartHeight
+                    - (normalizedValue / 100) * chartHeight;
+
+                return {
+                    sessionId: item.sessionId,
+                    label: item.label,
+                    rawValue,
+                    normalizedValue,
+                    x,
+                    y,
+                };
+            })
+            .filter(Boolean);
+
+        return {
+            ...series,
+            points,
+        };
+    });
+
+    const gridValues = [100, 75, 50, 25, 0];
+
+    return (
+        <section className="mypage-average-charts">
+            <div className="mypage-average-charts-header">
+                <div className="mypage-average-charts-title">
+                    <h2>면접별 평균 변화</h2>
+
+                    <p>
+                        ( 지표별 변화 추세를 0~100 범위로 정규화 )
+                    </p>
+                </div>
+
+                <div className="mypage-chart-legend">
+                    {CHART_SERIES.map((series) => (
+                        <div
+                            key={series.key}
+                            className={`chart-legend-item ${series.className}`}
+                        >
+                            <span className="chart-legend-line" />
+                            <strong>{series.label}</strong>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="mypage-combined-chart">
+                <svg
+                    className="mypage-combined-chart-svg"
+                    viewBox={`0 0 ${width} ${height}`}
+                    role="img"
+                    aria-label="면접별 평균 지표 변화 그래프"
+                >
+                    {gridValues.map((gridValue) => {
+                        const y = padding.top
+                            + chartHeight
+                            - (gridValue / 100) * chartHeight;
+
+                        return (
+                            <g key={gridValue}>
+                                <line
+                                    className="combined-chart-grid-line"
+                                    x1={padding.left}
+                                    y1={y}
+                                    x2={width - padding.right}
+                                    y2={y}
+                                />
+
+                                <text
+                                    className="combined-chart-axis-label"
+                                    x={padding.left - 12}
+                                    y={y + 4}
+                                    textAnchor="end"
+                                >
+                                    {gridValue}
+                                </text>
+                            </g>
+                        );
+                    })}
+
+                    {data.map((item, index) => {
+                        const x = getX(index);
+
+                        return (
+                            <g key={item.sessionId}>
+                                <line
+                                    className="combined-chart-vertical-line"
+                                    x1={x}
+                                    y1={padding.top}
+                                    x2={x}
+                                    y2={padding.top + chartHeight}
+                                />
+
+                                <text
+                                    className="combined-chart-session-label"
+                                    x={x}
+                                    y={height - 18}
+                                    textAnchor="middle"
+                                >
+                                    {item.label}
+                                </text>
+                            </g>
+                        );
+                    })}
+
+                    {normalizedSeries.map((series) => {
+                        const polylinePoints = series.points
+                            .map((point) => `${point.x},${point.y}`)
+                            .join(' ');
+
+                        return (
+                            <g
+                                key={series.key}
+                                className={`combined-chart-series ${series.className}`}
+                            >
+                                {series.points.length > 1 && (
+                                    <polyline
+                                        className="combined-chart-line"
+                                        points={polylinePoints}
+                                    />
+                                )}
+
+                                {series.points.map((point) => (
+                                    <g
+                                        key={
+                                            `${series.key}-${point.sessionId}`
+                                        }
+                                    >
+                                        <circle
+                                            className="combined-chart-point"
+                                            cx={point.x}
+                                            cy={point.y}
+                                            r="5"
+                                        >
+                                            <title>
+                                                {`${point.label} · `}
+                                                {series.label}
+                                                {': '}
+                                                {point.rawValue.toFixed(
+                                                    series.fixed,
+                                                )}
+                                                {series.unit}
+                                            </title>
+                                        </circle>
+                                    </g>
+                                ))}
+                            </g>
+                        );
+                    })}
+                </svg>
+            </div>
+
+            <div className="mypage-chart-values">
+                {data.map((item) => (
+                    <div
+                        key={item.sessionId}
+                        className="mypage-chart-value-card"
+                    >
+                        <strong>{item.label}</strong>
+
+                        <span>
+                            점수{' '}
+                            {Number.isFinite(item.averageScore)
+                                ? `${item.averageScore.toFixed(1)}점`
+                                : '-'}
+                        </span>
+
+                        <span>
+                            목소리{' '}
+                            {Number.isFinite(item.averageVoice)
+                                ? `${item.averageVoice.toFixed(2)}%`
+                                : '-'}
+                        </span>
+
+                        <span>
+                            음량{' '}
+                            {Number.isFinite(item.averageVolume)
+                                ? `${item.averageVolume.toFixed(2)}%`
+                                : '-'}
+                        </span>
+
+                        <span>
+                            속도{' '}
+                            {Number.isFinite(item.averageWpm)
+                                ? `${item.averageWpm.toFixed(0)}wpm`
+                                : '-'}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </section>
+    );
+}
+
 function MyPage() {
     const navigate = useNavigate();
 
@@ -102,6 +387,51 @@ function MyPage() {
         return `${Number(value).toFixed(fixed)}${unit}`;
     };
 
+    const calculateAverage = (logs, key) => {
+        const values = logs
+            .map((log) => Number(log[key]))
+            .filter((value) => Number.isFinite(value));
+
+        if (values.length === 0) {
+            return null;
+        }
+
+        return values.reduce((sum, value) => sum + value, 0)
+            / values.length;
+    };
+
+    const interviewMetrics = useMemo(() => {
+        return [...sessions]
+            .sort((a, b) => (
+                new Date(a.createdAt).getTime()
+                - new Date(b.createdAt).getTime()
+            ))
+            .map((session, index) => ({
+                sessionId: session.sessionId,
+                label: `면접 ${index + 1}`,
+
+                averageScore: calculateAverage(
+                    session.qaLogs,
+                    'score',
+                ),
+
+                averageVoice: calculateAverage(
+                    session.qaLogs,
+                    'jitter_shaken_percentage',
+                ),
+
+                averageVolume: calculateAverage(
+                    session.qaLogs,
+                    'shimmer_shaken_percentage',
+                ),
+
+                averageWpm: calculateAverage(
+                    session.qaLogs,
+                    'speed_difference_wpm',
+                ),
+            }));
+    }, [sessions]);
+
     if (isLoading) {
         return (
             <main className="mypage">
@@ -120,7 +450,7 @@ function MyPage() {
 
                     <button
                         type="button"
-                        onClick={() => navigate('/')}
+                        onClick={() => navigate('/login')}
                     >
                         로그인 페이지로 이동
                     </button>
@@ -133,21 +463,13 @@ function MyPage() {
         <main className="mypage page">
             <header className="mypage-header">
                 <div>
-                    <span className="mypage-subtitle">
-                        Interview History
-                    </span>
-
                     <h1>마이페이지</h1>
-
-                    <p>
-                        지금까지 진행한 면접 답변과 피드백을 확인해 보세요.
-                    </p>
                 </div>
 
                 <button
                     type="button"
                     className="mypage-main-button"
-                    onClick={() => navigate('/main')}
+                    onClick={() => navigate('/')}
                 >
                     메인으로
                 </button>
@@ -164,7 +486,7 @@ function MyPage() {
 
                     <button
                         type="button"
-                        onClick={() => navigate('/main')}
+                        onClick={() => navigate('/start')}
                     >
                         면접 시작하기
                     </button>
@@ -185,6 +507,13 @@ function MyPage() {
                                 }
                                 onClick={() => {
                                     setSelectedSessionId(session.sessionId);
+
+                                    setTimeout(() => {
+                                        window.scrollTo({
+                                            top: document.documentElement.scrollHeight,
+                                            behavior: 'smooth',
+                                        });
+                                    }, 0);
                                 }}
                             >
                                 <span className="session-label">
@@ -209,6 +538,8 @@ function MyPage() {
                     </aside>
 
                     <section className="mypage-result">
+                        <InterviewAverageChart data={interviewMetrics} />
+
                         {selectedSession && (
                             <>
                                 <div className="mypage-summary">

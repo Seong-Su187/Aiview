@@ -12,7 +12,6 @@
     gap: 24px;
 
     width: 100%;
-    margin: 0 auto 32px;
 }
 
 .mypage-header h1 {
@@ -20,22 +19,6 @@
 
     font-size: 38px;
     font-weight: 800;
-}
-
-.mypage-header p {
-    margin: 0;
-
-    color: #6b746f;
-    font-size: 15px;
-}
-
-.mypage-subtitle {
-    color: #4f7d65;
-
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
 }
 
 .mypage-main-button,
@@ -316,7 +299,7 @@
     flex-direction: column;
     gap: 8px;
 
-    padding: 12px;
+    padding: 8px;
 
     border: 1px solid #e2e9e5;
     border-radius: 14px;
@@ -333,7 +316,7 @@
 .mypage .voice-metric-list strong {
     color: #2f5d46;
 
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 800;
 }
 
@@ -379,4 +362,173 @@
 
 .mypage-error {
     color: #b33d3d;
+}
+
+.mypage-average-charts {
+    padding: 24px;
+    margin-bottom: 20px;
+
+    border: 1px solid #dfe7e2;
+    border-radius: 20px;
+
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(31, 58, 44, 0.06);
+}
+
+.mypage-average-charts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.mypage-average-charts-title {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.mypage-average-charts-title>* {
+    margin: 0;
+}
+
+/* 그래프 범례 */
+.mypage-chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+
+    margin-bottom: 18px;
+}
+
+.chart-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    color: #58645e;
+    font-size: 13px;
+}
+
+.chart-legend-line {
+    display: block;
+
+    width: 26px;
+    height: 3px;
+
+    border-radius: 999px;
+
+    background: currentColor;
+}
+
+/* 그래프 영역 */
+.mypage-combined-chart {
+    width: 100%;
+    overflow-x: auto;
+
+    border: 1px solid #e6ece8;
+    border-radius: 16px;
+
+    background: #f8faf9;
+}
+
+.mypage-combined-chart-svg {
+    display: block;
+
+    width: 100%;
+    min-width: 700px;
+    height: auto;
+}
+
+.combined-chart-grid-line {
+    stroke: #dce5e0;
+    stroke-width: 1;
+}
+
+.combined-chart-vertical-line {
+    stroke: #edf1ef;
+    stroke-dasharray: 4 5;
+    stroke-width: 1;
+}
+
+.combined-chart-axis-label {
+    fill: #87938d;
+    font-size: 12px;
+}
+
+.combined-chart-session-label {
+    fill: #586a61;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.combined-chart-line {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 3;
+}
+
+.combined-chart-point {
+    fill: #fff;
+    stroke: currentColor;
+    stroke-width: 3;
+}
+
+/* 선별 색상 */
+.combined-chart-series.score,
+.chart-legend-item.score {
+    color: #315d47;
+}
+
+.combined-chart-series.voice,
+.chart-legend-item.voice {
+    color: #4f79a7;
+}
+
+.combined-chart-series.volume,
+.chart-legend-item.volume {
+    color: #c27848;
+}
+
+.combined-chart-series.wpm,
+.chart-legend-item.wpm {
+    color: #865da5;
+}
+
+/* 그래프 아래 실제 평균값 */
+.mypage-chart-values {
+    display: grid;
+    grid-template-columns: repeat(auto-fit,
+            minmax(150px, 1fr));
+    gap: 10px;
+
+    margin-top: 16px;
+}
+
+.mypage-chart-value-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+
+    padding: 12px;
+
+    border: 1px solid #e3e9e6;
+    border-radius: 12px;
+
+    background: #f7f9f8;
+}
+
+.mypage-chart-value-card strong {
+    margin-bottom: 3px;
+
+    color: #315d47;
+    font-size: 14px;
+}
+
+.mypage-chart-value-card span {
+    color: #657069;
+    font-size: 12px;
 }
