@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { UserIcon } from '../../components/icons';
 import '../../index.css';
 import './main.css';
 
@@ -110,6 +111,44 @@ function Main({ mainVideoUrl }) {
 
     return (
         <main className="main-page">
+            {isLoggedIn && (
+                <nav className="user-floating-menu" aria-label="사용자 메뉴">
+                    <button
+                        type="button"
+                        className="user-floating-trigger"
+                        aria-label="사용자 메뉴 열기"
+                    >
+                        <UserIcon size={40} color="#ffffff" />
+                    </button>
+
+                    <div className="user-floating-list">
+                        <button
+                            type="button"
+                            className="user-floating-item"
+                            onClick={() => navigate('/mypage')}
+                        >
+                            마이페이지
+                        </button>
+
+                        <button
+                            type="button"
+                            className="user-floating-item"
+                            onClick={() => navigate('/start')}
+                        >
+                            면접 시작
+                        </button>
+
+                        <button
+                            type="button"
+                            className="user-floating-item logout"
+                            onClick={handleLogout}
+                        >
+                            로그아웃
+                        </button>
+                    </div>
+                </nav>
+            )}
+
             <section className="main-card section1">
                 <video
                     ref={videoRef}
