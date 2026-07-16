@@ -16,7 +16,8 @@ from llm import (
     generate_resume_based_questions,
     evaluate_answer_with_llm,
     process_audio_to_text,
-    generate_text_to_speech
+    generate_text_to_speech,
+    AVATAR_VOICE_MAP
 )
 import subprocess
 
@@ -572,12 +573,14 @@ async def process_interview_audio(
 
 @router.post("/tts")
 async def text_to_speech(text_payload: dict):
-    """텍스트를 받아 음성 파일(mp3)로 반환"""
+    """텍스트와 아바타 종류("young" | "middle_aged")를 받아 그에 맞는 목소리의 음성 파일(mp3)로 반환"""
     text = text_payload.get("text", "")
+    avatar = text_payload.get("avatar", "middle_aged")
+    voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
     file_id = uuid.uuid4()
     temp_path = f"temp_tts_{file_id}.mp3"
     try:
-        output_file = generate_text_to_speech(text, temp_path)
+        output_file = generate_text_to_speech(text, temp_path, voice=voice)
         return FileResponse(output_file, media_type="audio/mpeg", filename="avatar.mp3")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

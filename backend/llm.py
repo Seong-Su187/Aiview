@@ -100,12 +100,18 @@ def process_audio_to_text(audio_file_path: str) -> str:
         print(f"STT Error: {str(e)}")
         return "음성을 인식하지 못했습니다."
 
-def generate_text_to_speech(text: str, output_path: str):
+# 아바타 캐릭터별 목소리 매핑 (20대: echo, 40대: onyx)
+AVATAR_VOICE_MAP = {
+    "young": "echo",
+    "middle_aged": "onyx",
+}
+
+def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
     """OpenAI TTS API를 활용한 텍스트 -> 음성 생성"""
     try:
         response = client.audio.speech.create(
             model="tts-1",
-            voice="onyx",
+            voice=voice,
             input=text
         )
         response.stream_to_file(output_path)
