@@ -41,8 +41,15 @@ function Start({ startVideoUrl }) {
         setSelectedCandidateIds((previousIds) => {
             const isAlreadySelected = previousIds.includes(candidateId);
 
+            // 이미 선택된 면접자는 다시 누르면 선택 해제
             if (isAlreadySelected) {
                 return previousIds.filter((id) => id !== candidateId);
+            }
+
+            // 최대 2명까지만 선택
+            if (previousIds.length >= 2) {
+                alert('면접자는 최대 2명까지 선택할 수 있습니다.');
+                return previousIds;
             }
 
             return [...previousIds, candidateId];
@@ -78,7 +85,7 @@ function Start({ startVideoUrl }) {
 
                         <p>
                             선택하지 않으면 혼자 면접을 진행합니다.
-                            여러 명을 선택할 수도 있습니다.
+                            면접자는 최대 2명까지 선택할 수 있습니다.
                         </p>
                     </div>
 
@@ -108,6 +115,10 @@ function Start({ startVideoUrl }) {
                                             }`}
                                         onClick={() =>
                                             handleCandidateSelect(candidate.id)
+                                        }
+                                        disabled={
+                                            selectedCandidateIds.length >= 2 &&
+                                            !isSelected
                                         }
                                     >
                                         <div className="candidate-image-box">

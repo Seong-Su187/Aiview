@@ -19,6 +19,70 @@
     background-position: left center;
 }
 
+/* 지원자 답변 영상 */
+.candidate-eye-transition {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+
+    pointer-events: none;
+}
+
+.candidate-eye-transition::before,
+.candidate-eye-transition::after {
+    content: '';
+
+    position: absolute;
+    left: 0;
+
+    width: 100%;
+    height: 50%;
+
+    background: #000;
+
+    transform: scaleY(0);
+}
+
+.candidate-eye-transition::before {
+    top: 0;
+    transform-origin: top;
+}
+
+.candidate-eye-transition::after {
+    bottom: 0;
+    transform-origin: bottom;
+}
+
+.candidate-eye-transition.candidate-eye-closing::before,
+.candidate-eye-transition.candidate-eye-closing::after {
+    animation: candidate-eyelid-close 0.18s ease-in forwards;
+}
+
+.candidate-eye-transition.candidate-eye-opening::before,
+.candidate-eye-transition.candidate-eye-opening::after {
+    animation: candidate-eyelid-open 0.22s ease-out forwards;
+}
+
+@keyframes candidate-eyelid-close {
+    from {
+        transform: scaleY(0);
+    }
+
+    to {
+        transform: scaleY(1);
+    }
+}
+
+@keyframes candidate-eyelid-open {
+    from {
+        transform: scaleY(1);
+    }
+
+    to {
+        transform: scaleY(0);
+    }
+}
+
 .interviewer-avatar-video {
     position: absolute;
     inset: 0;
@@ -30,11 +94,36 @@
     object-position: center;
 }
 
+/* 답변 중인 지원자 영상 */
+.candidate-answer-video {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    object-position: center;
+
+    background: #000;
+}
+
+/* 선택한 지원자 중 ID가 낮은 지원자: 왼쪽 자리 */
+.candidate-answer-video.candidate-left {
+    transform: scaleX(-1);
+}
+
+/* 선택한 지원자 중 ID가 높은 지원자: 오른쪽 자리 */
+.candidate-answer-video.candidate-right {
+    transform: scaleX(1);
+}
+
 .interview-status {
     position: absolute;
     top: 24px;
     left: 24px;
-    z-index: 2;
+    z-index: 5;
 
     display: flex;
     align-items: center;
@@ -62,7 +151,7 @@
     position: absolute;
     left: 50%;
     bottom: 40px;
-    z-index: 2;
+    z-index: 5;
 
     width: min(620px, calc(100% - 48px));
     display: flex;

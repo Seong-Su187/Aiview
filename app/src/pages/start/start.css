@@ -94,9 +94,22 @@
         box-shadow 0.2s ease;
 }
 
-.candidate-card:hover {
+.candidate-card:not(:disabled):hover {
     transform: translateY(-6px);
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* 최대 인원 선택 후 선택되지 않은 카드 */
+.candidate-card:disabled:not(.selected) {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(40%);
+}
+
+/* 비활성화된 카드는 hover 효과 제거 */
+.candidate-card:disabled:not(.selected):hover {
+    transform: none;
+    box-shadow: none;
 }
 
 .candidate-card.selected {
