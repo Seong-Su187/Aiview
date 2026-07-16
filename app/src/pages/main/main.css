@@ -150,3 +150,120 @@
 
     filter: blur(0);
 }
+
+/* 로그인 사용자 전용 고정 메뉴 */
+.user-floating-menu {
+    position: fixed;
+    right: 140px;
+    top: calc(50% + 360px);
+    transform: translateY(-50%);
+    z-index: 1000;
+
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+/* 초기 상태에서 보이는 원형 유저 아이콘 */
+.user-floating-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    width: 80px;
+    height: 80px;
+    padding: 0;
+
+    border: 3px solid rgba(255, 255, 255);
+    border-radius: 50%;
+
+    background: rgba(12, 17, 27, 0.7);
+    backdrop-filter: blur(10px);
+
+    cursor: pointer;
+
+    transition:
+        transform 0.25s ease,
+        background 0.25s ease;
+}
+
+.user-floating-menu:hover .user-floating-trigger,
+.user-floating-menu:focus-within .user-floating-trigger {
+    background: rgba(12, 17, 27, 0.9);
+    transform: translateY(-2px);
+}
+
+/* 페이지 이동 목록 */
+.user-floating-list {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    max-width: 0;
+
+    overflow: hidden;
+
+    opacity: 0;
+    visibility: hidden;
+
+    transform: translateX(20px);
+
+    transition:
+        max-width 0.4s ease,
+        opacity 0.25s ease,
+        transform 0.35s ease,
+        visibility 0.35s;
+}
+
+/* 메뉴 영역에 마우스를 올리면 왼쪽으로 펼쳐짐 */
+.user-floating-menu:hover .user-floating-list,
+.user-floating-menu:focus-within .user-floating-list {
+    max-width: 500px;
+
+    opacity: 1;
+    visibility: visible;
+
+    transform: translateX(0);
+}
+
+/* 각각의 페이지 이동 버튼 */
+.user-floating-item {
+    flex-shrink: 0;
+
+    min-width: 110px;
+    padding: 12px 18px;
+
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 999px;
+
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+
+    background: rgba(12, 17, 27, 0.7);
+    backdrop-filter: blur(10px);
+
+    cursor: pointer;
+
+    transition:
+        transform 0.2s ease,
+        background 0.2s ease;
+}
+
+.user-floating-item:hover {
+    background: rgba(93, 143, 120, 0.95);
+    transform: translateY(-2px);
+}
+
+.user-floating-item.logout:hover {
+    background: rgba(166, 74, 74, 0.95);
+}
+
+.user-floating-trigger:focus-visible,
+.user-floating-item:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 3px;
+}
