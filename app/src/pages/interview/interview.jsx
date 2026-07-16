@@ -21,6 +21,11 @@ function Interview() {
 
     const candidateTypingTimerRef = useRef(null);
     const candidateFinishTimerRef = useRef(null);
+    const candidateVideoRef = useRef(null);
+    const candidateVideoAnimationRef = useRef(null);
+    const candidateTransitionTimerRef = useRef([]);
+    const candidateVideoDirectionRef = useRef(1);
+    const candidateVideoPreviousTimeRef = useRef(null);
 
     const baselineRecorderRef = useRef(null);
     const baselineStreamRef = useRef(null);
@@ -52,6 +57,8 @@ function Interview() {
     const [candidateAnswerQueue, setCandidateAnswerQueue] = useState([]);
     const [activeCandidateAnswer, setActiveCandidateAnswer] = useState(null);
     const [typedCandidateText, setTypedCandidateText] = useState('');
+    const [candidateTransition, setCandidateTransition] = useState('');
+    const [isCandidateSceneReady, setIsCandidateSceneReady] = useState(false);
 
     const [interviewerVideoUrl, setInterviewerVideoUrl] = useState(null);
     const interviewerVideoUrlRef = useRef(null);
@@ -167,6 +174,114 @@ function Interview() {
 
         interviewerVideoUrlRef.current = nextUrl;
         setInterviewerVideoUrl(nextUrl);
+    };
+
+    const getCandidateVideoUrl = (videoUrl) => {
+        return videoUrl || '';
+    };
+
+    const getCandidatePosition = (candidateId) => {
+        const sortedCandidates = [...selectedCandidates].sort(
+            (candidateA, candidateB) =>
+                Number(candidateA.id) - Number(candidateB.id),
+        );
+
+        const candidateIndex = sortedCandidates.findIndex(
+            (candidate) =>
+                Number(candidate.id) === Number(candidateId),
+        );
+
+        return candidateIndex === 0 ? 'left' : 'right';
+    };
+
+    const getCandidateWithMedia = (candidateAnswer) => {
+        const answerCandidateId =
+            candidateAnswer.id ?? candidateAnswer.candidate_id;
+
+        const selectedCandidate = selectedCandidates.find(
+            (candidate) =>
+                Number(candidate.id) === Number(answerCandidateId),
+        );
+
+        return {
+            ...selectedCandidate,
+            ...candidateAnswer,
+            id: answerCandidateId,
+            video_url:
+                candidateAnswer.video_url ||
+                selectedCandidate?.video_url ||
+                '',
+        };
+    };
+
+    const stopCandidateVideoAnimation = () => {
+        if (candidateVideoAnimationRef.current) {
+            cancelAnimationFrame(candidateVideoAnimationRef.current);
+            candidateVideoAnimationRef.current = null;
+        }
+
+        candidateVideoPreviousTimeRef.current = null;
+        candidateVideoDirectionRef.current = 1;
+    };
+
+    const startCandidateVideoPingPong = () => {
+        const video = candidateVideoRef.current;
+
+        if (!video) {
+            console.error('지원자 영상 요소를 찾지 못했습니다.');
+            return;
+        }
+
+        if (!Number.isFinite(video.duration) || video.duration <= 0) {
+            console.error('지원자 영상 duration 오류:', video.duration);
+            return;
+        }
+
+        stopCandidateVideoAnimation();
+
+        video.pause();
+
+        candidateVideoDirectionRef.current = 1;
+        candidateVideoPreviousTimeRef.current = null;
+        video.currentTime = 0;
+
+        const animateVideo = (timestamp) => {
+            const currentVideo = candidateVideoRef.current;
+
+            if (!currentVideo || !currentVideo.isConnected) {
+                stopCandidateVideoAnimation();
+                return;
+            }
+
+            if (candidateVideoPreviousTimeRef.current === null) {
+                candidateVideoPreviousTimeRef.current = timestamp;
+            }
+
+            const elapsedSeconds =
+                (timestamp - candidateVideoPreviousTimeRef.current) / 1000;
+
+            candidateVideoPreviousTimeRef.current = timestamp;
+
+            const nextTime =
+                currentVideo.currentTime +
+                elapsedSeconds * candidateVideoDirectionRef.current;
+
+            if (nextTime >= currentVideo.duration) {
+                currentVideo.currentTime = currentVideo.duration;
+                candidateVideoDirectionRef.current = -1;
+            } else if (nextTime <= 0) {
+                currentVideo.currentTime = 0;
+                candidateVideoDirectionRef.current = 1;
+            } else {
+                currentVideo.currentTime = nextTime;
+            }
+
+            candidateVideoAnimationRef.current =
+                requestAnimationFrame(animateVideo);
+        };
+
+        candidateVideoAnimationRef.current =
+            requestAnimationFrame(animateVideo);
     };
 
     /*
@@ -324,7 +439,7 @@ function Interview() {
         addMessage(
             'system',
             wpm
-                ? `기존에 등록한 기본 음성을 사용합니다. 기준 말하기 속도는 약 ${Math.round(wpm)} WPM입니다.`
+                ? `기존에 등록한 기본 음성을 사용합니다. 기존 말하기 속도는 약 ${Math.round(wpm)} WPM입니다.`
                 : '기존에 등록한 기본 음성을 사용합니다.',
         );
 
@@ -883,8 +998,12 @@ function Interview() {
                         data.avatar_video_base64 || null,
                     );
 
+                    stopCandidateVideoAnimation();
+
                     setActiveCandidateAnswer(null);
                     setTypedCandidateText('');
+                    setCandidateTransition('');
+                    setIsCandidateSceneReady(false);
 
                     setCandidateAnswerQueue(
                         shuffleCandidateAnswers(
@@ -1342,6 +1461,8 @@ function Interview() {
             !hasUserAnsweredCurrentQuestion ||
             activeCandidateAnswer ||
             candidateAnswerQueue.length > 0 ||
+            candidateTransition !== '' ||
+            isCandidateSceneReady ||
             isRecordingAnswer ||
             isStartingAnswerRecording ||
             isProcessingAnswer
@@ -1372,6 +1493,8 @@ function Interview() {
         hasUserAnsweredCurrentQuestion,
         activeCandidateAnswer,
         candidateAnswerQueue,
+        candidateTransition,
+        isCandidateSceneReady,
         isRecordingAnswer,
         isStartingAnswerRecording,
         isProcessingAnswer,
@@ -1745,9 +1868,9 @@ function Interview() {
             return;
         }
 
-        // 10초 이상 15초 이하
+        // 5초 이상 10초 이하
         const randomDelay =
-            10000 + Math.floor(Math.random() * 5001);
+            5000 + Math.floor(Math.random() * 5001);
 
         candidateDelayTimerRef.current = setTimeout(() => {
             /*
@@ -1762,17 +1885,40 @@ function Interview() {
             }
 
             setCandidateAnswerQueue((previousQueue) => {
-                const [
-                    nextCandidate,
-                    ...remainingCandidates
-                ] = previousQueue;
+                const [nextCandidate, ...remainingCandidates] =
+                    previousQueue;
 
                 if (!nextCandidate) {
                     return previousQueue;
                 }
 
-                setActiveCandidateAnswer(nextCandidate);
+                const candidateWithMedia =
+                    getCandidateWithMedia(nextCandidate);
+
+                candidateTransitionTimerRef.current.forEach((timer) => {
+                    clearTimeout(timer);
+                });
+
+                candidateTransitionTimerRef.current = [];
+
+                setIsCandidateSceneReady(false);
+                setCandidateTransition('closing');
                 setTypedCandidateText('');
+
+                const showCandidateTimer = setTimeout(() => {
+                    setActiveCandidateAnswer(candidateWithMedia);
+                    setCandidateTransition('opening');
+                }, 180);
+
+                const finishTransitionTimer = setTimeout(() => {
+                    setCandidateTransition('');
+                    setIsCandidateSceneReady(true);
+                }, 400);
+
+                candidateTransitionTimerRef.current = [
+                    showCandidateTimer,
+                    finishTransitionTimer,
+                ];
 
                 return remainingCandidates;
             });
@@ -1792,11 +1938,34 @@ function Interview() {
 
     // 지원자 답변을 한 글자씩 표시
     useEffect(() => {
-        if (!activeCandidateAnswer || isRecordingAnswer) {
+        if (
+            !activeCandidateAnswer ||
+            !isCandidateSceneReady ||
+            isRecordingAnswer
+        ) {
             return;
         }
 
-        const fullText = activeCandidateAnswer.answer || '';
+        const fullText =
+            activeCandidateAnswer.answer ||
+            activeCandidateAnswer.answer_text ||
+            activeCandidateAnswer.text ||
+            '';
+
+        if (!fullText) {
+            console.error(
+                '지원자 답변 텍스트가 없습니다:',
+                activeCandidateAnswer,
+            );
+
+            stopCandidateVideoAnimation();
+            setIsCandidateSceneReady(false);
+            setActiveCandidateAnswer(null);
+            setTypedCandidateText('');
+
+            return;
+        }
+
         let currentLength = 0;
 
         candidateTypingTimerRef.current = setInterval(() => {
@@ -1812,8 +1981,25 @@ function Interview() {
                         fullText,
                         activeCandidateAnswer.name,
                     );
-                    setActiveCandidateAnswer(null);
-                    setTypedCandidateText('');
+
+                    stopCandidateVideoAnimation();
+                    setIsCandidateSceneReady(false);
+                    setCandidateTransition('closing');
+
+                    const hideCandidateTimer = setTimeout(() => {
+                        setActiveCandidateAnswer(null);
+                        setTypedCandidateText('');
+                        setCandidateTransition('opening');
+                    }, 180);
+
+                    const finishReturnTimer = setTimeout(() => {
+                        setCandidateTransition('');
+                    }, 400);
+
+                    candidateTransitionTimerRef.current = [
+                        hideCandidateTimer,
+                        finishReturnTimer,
+                    ];
                 }, 650);
             }
         }, 55);
@@ -1822,7 +2008,41 @@ function Interview() {
             clearInterval(candidateTypingTimerRef.current);
             clearTimeout(candidateFinishTimerRef.current);
         };
-    }, [activeCandidateAnswer, isRecordingAnswer]);
+    }, [
+        activeCandidateAnswer,
+        isCandidateSceneReady,
+        isRecordingAnswer,
+    ]);
+
+    useEffect(() => {
+        if (
+            !activeCandidateAnswer ||
+            !isCandidateSceneReady
+        ) {
+            return;
+        }
+
+        const video = candidateVideoRef.current;
+
+        if (!video) {
+            return;
+        }
+
+        video.currentTime = 0;
+
+        video.play().catch((error) => {
+            if (error.name !== 'AbortError') {
+                console.error(
+                    '지원자 영상 재생 오류:',
+                    error,
+                );
+            }
+        });
+
+        return () => {
+            video.pause();
+        };
+    }, [activeCandidateAnswer, isCandidateSceneReady]);
 
     // 페이지 최초 진입 시 면접 세션 생성
     useEffect(() => {
@@ -1849,6 +2069,14 @@ function Interview() {
             clearTimeout(candidateDelayTimerRef.current);
             clearInterval(candidateTypingTimerRef.current);
             clearTimeout(candidateFinishTimerRef.current);
+
+            stopCandidateVideoAnimation();
+
+            candidateTransitionTimerRef.current.forEach((timer) => {
+                clearTimeout(timer);
+            });
+
+            candidateTransitionTimerRef.current = [];
 
             if (
                 answerRecorderRef.current &&
@@ -1934,6 +2162,41 @@ function Interview() {
                         playsInline
                     />
                 )}
+
+                {activeCandidateAnswer && (
+                    <video
+                        ref={candidateVideoRef}
+                        key={`${activeCandidateAnswer.id}-${activeCandidateAnswer.video_url}`}
+                        className={`candidate-answer-video ${getCandidatePosition(activeCandidateAnswer.id) === 'left'
+                            ? 'candidate-left'
+                            : 'candidate-right'
+                            }`}
+                        src={getCandidateVideoUrl(
+                            activeCandidateAnswer.video_url,
+                        )}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="auto"
+                        onError={(event) => {
+                            const video = event.currentTarget;
+
+                            console.error('지원자 영상 재생 오류:', {
+                                src: video.currentSrc,
+                                errorCode: video.error?.code,
+                                errorMessage: video.error?.message,
+                            });
+                        }}
+                    />
+                )}
+
+                <div
+                    className={`candidate-eye-transition ${candidateTransition
+                        ? `candidate-eye-${candidateTransition}`
+                        : ''
+                        }`}
+                />
 
                 <div className="interview-status">
                     <span
@@ -2024,7 +2287,7 @@ function Interview() {
                                                 ? '다른 지원자의 답변이 끝나면 녹음할 수 있습니다.'
                                                 : hasUserAnsweredCurrentQuestion
                                                     ? '다른 지원자들의 답변이 끝나면 다음 질문으로 넘어갑니다.'
-                                                    : '10~15초 후 다른 지원자가 답변할 수 있으므로 먼저 답하려면 녹음 버튼을 눌러주세요.'}
+                                                    : '5~10초 후 다른 지원자가 답변할 수 있으므로 먼저 답하려면 녹음 버튼을 눌러주세요.'}
                                 </p>
                             </div>
                         </div>
