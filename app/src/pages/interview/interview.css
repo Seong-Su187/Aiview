@@ -55,12 +55,12 @@
 
 .candidate-eye-transition.candidate-eye-closing::before,
 .candidate-eye-transition.candidate-eye-closing::after {
-    animation: candidate-eyelid-close 0.18s ease-in forwards;
+    animation: candidate-eyelid-close 0.22s ease-in forwards;
 }
 
 .candidate-eye-transition.candidate-eye-opening::before,
 .candidate-eye-transition.candidate-eye-opening::after {
-    animation: candidate-eyelid-open 0.22s ease-out forwards;
+    animation: candidate-eyelid-open 0.24s ease-out forwards;
 }
 
 @keyframes candidate-eyelid-close {

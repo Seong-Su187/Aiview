@@ -131,6 +131,24 @@ function Interview() {
         ]);
     };
 
+    const getInterviewerName = (questionType, avatar) => {
+        if (
+            questionType === 'technical' ||
+            avatar === 'middle_aged'
+        ) {
+            return '기술면접관';
+        }
+
+        if (
+            questionType === 'hr' ||
+            avatar === 'young'
+        ) {
+            return '인사담당자';
+        }
+
+        return '면접관';
+    };
+
     const shuffleCandidateAnswers = (answers) => {
         const shuffled = [...answers];
 
@@ -992,6 +1010,10 @@ function Interview() {
                     addMessage(
                         'interviewer',
                         data.question_text,
+                        getInterviewerName(
+                            data.interviewer_type,
+                            data.avatar,
+                        ),
                     );
 
                     setInterviewerVideo(
@@ -1908,12 +1930,12 @@ function Interview() {
                 const showCandidateTimer = setTimeout(() => {
                     setActiveCandidateAnswer(candidateWithMedia);
                     setCandidateTransition('opening');
-                }, 180);
+                }, 240);
 
                 const finishTransitionTimer = setTimeout(() => {
                     setCandidateTransition('');
                     setIsCandidateSceneReady(true);
-                }, 400);
+                }, 500);
 
                 candidateTransitionTimerRef.current = [
                     showCandidateTimer,
@@ -1990,11 +2012,11 @@ function Interview() {
                         setActiveCandidateAnswer(null);
                         setTypedCandidateText('');
                         setCandidateTransition('opening');
-                    }, 180);
+                    }, 240);
 
                     const finishReturnTimer = setTimeout(() => {
                         setCandidateTransition('');
-                    }, 400);
+                    }, 500);
 
                     candidateTransitionTimerRef.current = [
                         hideCandidateTimer,
@@ -2365,12 +2387,11 @@ function Interview() {
                                 key={message.id}
                                 className={`chat-message ${message.type}`}
                             >
-                                {message.type ===
-                                    'interviewer' && (
-                                        <span className="message-name">
-                                            면접관
-                                        </span>
-                                    )}
+                                {message.type === 'interviewer' && (
+                                    <span className="message-name">
+                                        {message.name || '면접관'}
+                                    </span>
+                                )}
 
                                 {message.type === 'user' && (
                                     <span className="message-name">
