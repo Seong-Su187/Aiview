@@ -170,7 +170,195 @@
     pointer-events: none;
 }
 
-/* 왼쪽 회전 정보 패널 */
+.main-left-visual {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    z-index: 2;
+
+    width: 720px;
+    height: 720px;
+
+    transform: translateY(-50%);
+
+    pointer-events: none;
+
+    opacity: 0.85;
+
+    /* 바깥쪽으로 자연스럽게 사라지도록 */
+    mask-image: linear-gradient(to right,
+            rgba(0, 0, 0, 0.95) 0%,
+            rgba(0, 0, 0, 0.9) 72%,
+            transparent 100%);
+}
+
+/* 공통 궤도 */
+.main-orbit {
+    position: absolute;
+    top: 50%;
+    left: 40%;
+
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-radius: 50%;
+
+    transform: translate(-50%, -50%);
+
+    animation: mainOrbitRotate 24s linear infinite;
+}
+
+.main-orbit::before,
+.main-orbit::after {
+    content: "";
+
+    position: absolute;
+    border-radius: 50%;
+}
+
+.main-orbit::before {
+    inset: 8%;
+
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
+.main-orbit::after {
+    top: 50%;
+    left: 50%;
+
+    width: 4px;
+    height: 4px;
+
+    background: rgba(105, 175, 145, 0.9);
+    box-shadow: 0 0 14px rgba(105, 175, 145, 0.7);
+
+    transform: translate(-50%, -50%);
+}
+
+/* 가장 큰 원: 영역 대부분 차지 */
+.main-orbit-large {
+    width: min(58vh, 520px);
+    height: min(58vh, 520px);
+}
+
+/* 중간 원 */
+.main-orbit-medium {
+    width: min(42vh, 380px);
+    height: min(42vh, 380px);
+
+    border-color: rgba(255, 255, 255, 0.2);
+
+    animation-duration: 30s;
+    animation-direction: reverse;
+}
+
+/* 안쪽 원 */
+.main-orbit-small {
+    width: min(26vh, 235px);
+    height: min(26vh, 235px);
+
+    border-color: rgba(105, 175, 145, 0.38);
+
+    animation-duration: 18s;
+}
+
+/* 궤도를 따라 도는 점 */
+.main-orbit-dot {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+    background: rgba(105, 175, 145, 0.9);
+
+    box-shadow:
+        0 0 8px rgba(105, 175, 145, 0.7),
+        0 0 18px rgba(105, 175, 145, 0.65);
+
+    transform: translateX(-50%);
+}
+
+/* 중앙 음성 파형 */
+.main-visual-core {
+    position: absolute;
+    top: 50%;
+    left: 40%;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    width: 100px;
+    height: 100px;
+
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 50%;
+
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(3px);
+
+    transform: translate(-50%, -50%);
+}
+
+.main-visual-core span {
+    width: 4px;
+    height: 28px;
+
+    border-radius: 999px;
+    background: rgba(105, 175, 145, 0.85);
+
+    animation: mainVoiceWave 1.8s ease-in-out infinite;
+}
+
+.main-visual-core span:nth-child(2) {
+    height: 44px;
+    animation-delay: -0.35s;
+}
+
+.main-visual-core span:nth-child(3) {
+    height: 22px;
+    animation-delay: -0.7s;
+}
+
+@keyframes mainOrbitRotate {
+    from {
+        transform: translate(-50%, -50%) rotate(0deg);
+    }
+
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+@keyframes mainVoiceWave {
+
+    0%,
+    100% {
+        transform: scaleY(0.55);
+        opacity: 0.45;
+    }
+
+    50% {
+        transform: scaleY(1);
+        opacity: 1;
+    }
+}
+
+@keyframes mainReadyPulse {
+
+    0%,
+    100% {
+        opacity: 0.35;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+/* 오른쪽 회전 정보 패널 */
 .main-info-rotator {
     position: absolute;
     top: 14%;
@@ -243,13 +431,13 @@
     opacity: 1;
 }
 
-/* 현재 카드가 왼쪽으로 빠짐 */
+/* 현재 카드가 위쪽으로 빠짐 */
 .main-info-card.slide-out {
     transform: translateY(-105%);
     opacity: 0;
 }
 
-/* 다음 카드가 오른쪽에서 들어옴 */
+/* 다음 카드가 아래쪽에서 들어옴 */
 .main-info-card.slide-in {
     transform: translateY(105%);
     opacity: 0;
@@ -346,6 +534,33 @@
     pointer-events: auto;
 }
 
+/* 큰 제목 */
+.main-message-title {
+    margin: 0;
+
+    font-size: clamp(38px, 3.2vw, 58px);
+    font-weight: 750;
+    line-height: 1.18;
+    letter-spacing: -0.045em;
+
+    -webkit-text-stroke: 7px rgba(164, 164, 166);
+    paint-order: stroke fill;
+}
+
+/* 작은 설명 */
+.main-message-description {
+    margin: 24px 0 0;
+
+    font-size: clamp(16px, 1.2vw, 20px);
+    font-weight: 500;
+    line-height: 1.7;
+    letter-spacing: -0.015em;
+
+    color: rgba(35, 40, 42, 0.62);
+
+    padding-bottom: 120px;
+}
+
 .main-message-image {
     width: 30px;
     height: 30px;
@@ -398,6 +613,30 @@
 
 .main-button.primary:hover {
     background: #4e7d68;
+}
+
+.main-button-arrow {
+    display: inline-block;
+    padding-left: 6px;
+
+    font-size: 18px;
+    font-weight: 100;
+    line-height: 1;
+    letter-spacing: -5px;
+
+    animation: mainArrowMove 1.1s ease-in-out infinite;
+}
+
+@keyframes mainArrowMove {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    50% {
+        transform: translateX(6px);
+    }
 }
 
 /* 영상 후반부 멘트 등장 효과 */

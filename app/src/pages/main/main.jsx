@@ -147,6 +147,7 @@ function Main({ mainVideoUrl }) {
             setTimeout(() => setMessageStep(2), 1500),
             setTimeout(() => setMessageStep(3), 7500),
             setTimeout(() => setMessageStep(4), 9000),
+            setTimeout(() => setMessageStep(5), 11000),
         ];
     };
 
@@ -256,6 +257,26 @@ function Main({ mainVideoUrl }) {
                 </header>
 
                 <div className="main-overlay">
+                    <div className="main-left-visual" aria-hidden="true">
+                        <div className="main-orbit main-orbit-large">
+                            <span className="main-orbit-dot" />
+                        </div>
+
+                        <div className="main-orbit main-orbit-medium">
+                            <span className="main-orbit-dot" />
+                        </div>
+
+                        <div className="main-orbit main-orbit-small">
+                            <span className="main-orbit-dot" />
+                        </div>
+
+                        <div className="main-visual-core">
+                            <span />
+                            <span />
+                            <span />
+                        </div>
+                    </div>
+
                     <div
                         className={`main-info-rotator ${messageStep >= 4 ? 'visible' : ''
                             }`}
@@ -299,6 +320,18 @@ function Main({ mainVideoUrl }) {
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    <div className="main-message">
+                        <p className={`main-message-item main-message-title ${messageStep >= 5 ? 'visible' : ''}`} >
+                            완벽하지 않아도 괜찮은<br />
+                            나만의 면접 무대
+                        </p>
+
+                        <p className={`main-message-item main-message-description ${messageStep >= 5 ? 'visible' : ''}`} >
+                            부담 없이 면접을 반복하며<br />
+                            조금씩 달라지는 나를 확인해 보세요.
+                        </p>
                     </div>
 
                     <div className="main-message">
@@ -355,7 +388,10 @@ function Main({ mainVideoUrl }) {
                                         className="main-button primary"
                                         onClick={handleStartInterview}
                                     >
-                                        면접실 입장 →
+                                        <span>면접장 입장</span>
+                                        <span className="main-button-arrow" aria-hidden="true">
+                                            ❯❯
+                                        </span>
                                     </button>
                                 </span>
                             ) : (
