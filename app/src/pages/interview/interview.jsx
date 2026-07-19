@@ -12,6 +12,7 @@ function Interview() {
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
+    const userVideoRef = useRef(null); // 추가된 사용자 비디오 Ref
 
     const candidateDelayTimerRef = useRef(null);
 
@@ -60,13 +61,16 @@ function Interview() {
     const [candidateTransition, setCandidateTransition] = useState('');
     const [isCandidateSceneReady, setIsCandidateSceneReady] = useState(false);
 
-    const [interviewerVideoUrl, setInterviewerVideoUrl] = useState(null);
+    const interviewerVideoRef = useRef(null);
     const interviewerVideoUrlRef = useRef(null);
+    const interviewerStreamAbortRef = useRef(null);
 
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
+    
+    const [isCameraActive, setIsCameraActive] = useState(false); // 추가된 상태
 
     // 나중에 제거
     const [answerMode, setAnswerMode] = useState('voice');
@@ -164,34 +168,163 @@ function Interview() {
         return shuffled;
     };
 
-    // base64로 전달받은 mp4 데이터를 브라우저에서 재생 가능한 URL로 변환
-    const base64ToVideoUrl = (base64) => {
-        const byteCharacters = atob(base64);
-        const byteNumbers = new Array(byteCharacters.length);
-
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
+    /*
+     * MuseTalk 아바타 영상을 완성될 때까지 기다리지 않고, 도착하는 대로
+     * MediaSource(MSE)에 흘려 넣어 재생합니다 (MoodTender 프로젝트의
+     * stream_inference.py + _generateStream 패턴을 이식).
+     */
+    const playInterviewerVideoStream = async (text, avatar, duoAvatarType) => {
+        const videoEl = interviewerVideoRef.current;
+        if (!videoEl || !text) {
+            return;
         }
 
-        const blob = new Blob(
-            [new Uint8Array(byteNumbers)],
-            { type: 'video/mp4' },
-        );
+        // 이전 질문의 스트리밍이 아직 끝나지 않았다면 취소
+        if (interviewerStreamAbortRef.current) {
+            interviewerStreamAbortRef.current.abort();
+        }
 
-        return URL.createObjectURL(blob);
-    };
+        const abortController = new AbortController();
+        interviewerStreamAbortRef.current = abortController;
 
-    const setInterviewerVideo = (base64OrNull) => {
         if (interviewerVideoUrlRef.current) {
             URL.revokeObjectURL(interviewerVideoUrlRef.current);
+            interviewerVideoUrlRef.current = null;
         }
 
-        const nextUrl = base64OrNull
-            ? base64ToVideoUrl(base64OrNull)
-            : null;
+        const MIME = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+        if (!('MediaSource' in window) || !MediaSource.isTypeSupported(MIME)) {
+            console.error('[interview] 이 브라우저는 아바타 영상 스트리밍(MSE)을 지원하지 않습니다.');
+            return;
+        }
 
-        interviewerVideoUrlRef.current = nextUrl;
-        setInterviewerVideoUrl(nextUrl);
+        const mediaSource = new MediaSource();
+        const objectUrl = URL.createObjectURL(mediaSource);
+        interviewerVideoUrlRef.current = objectUrl;
+        videoEl.src = objectUrl;
+
+        await new Promise((resolve) => {
+            mediaSource.addEventListener('sourceopen', resolve, { once: true });
+        });
+
+        if (abortController.signal.aborted) {
+            return;
+        }
+
+        const sourceBuffer = mediaSource.addSourceBuffer(MIME);
+        const appendQueue = [];
+        let appending = false;
+        let streamDone = false;
+        let monitorTimerId = null;
+        let started = false;
+        let playAllowed = false;
+
+        const flushQueue = () => {
+            if (appending || appendQueue.length === 0 || mediaSource.readyState !== 'open') {
+                return;
+            }
+
+            appending = true;
+            sourceBuffer.appendBuffer(appendQueue.shift());
+        };
+
+        sourceBuffer.addEventListener('updateend', () => {
+            appending = false;
+
+            if (streamDone && appendQueue.length === 0) {
+                try {
+                    mediaSource.endOfStream();
+                } catch (error) {
+                    // 이미 닫힌 스트림이면 무시
+                }
+            } else {
+                flushQueue();
+            }
+        });
+
+        sourceBuffer.addEventListener('error', (error) => {
+            console.error('[interview] MSE SourceBuffer 오류:', error);
+        });
+
+        const PAUSE_THRESHOLD = 0.05;
+        const RESUME_THRESHOLD = 1.0;
+
+        const monitorBuffer = () => {
+            if (!started || videoEl.ended || abortController.signal.aborted) {
+                return;
+            }
+
+            const buffered = videoEl.buffered;
+            if (buffered.length > 0) {
+                const ahead = buffered.end(buffered.length - 1) - videoEl.currentTime;
+
+                if (!streamDone) {
+                    if (!videoEl.paused && ahead < PAUSE_THRESHOLD) {
+                        videoEl.pause();
+                    } else if (videoEl.paused && playAllowed && ahead >= RESUME_THRESHOLD) {
+                        videoEl.play().catch(() => {});
+                    }
+                } else if (videoEl.paused && playAllowed) {
+                    videoEl.play().catch(() => {});
+                }
+            }
+
+            monitorTimerId = setTimeout(monitorBuffer, 200);
+        };
+
+        try {
+            const response = await fetch(
+                `${API_BASE_URL}/interviews/avatar-video-stream`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text,
+                        avatar,
+                        duo_avatar_type: duoAvatarType,
+                    }),
+                    signal: abortController.signal,
+                },
+            );
+
+            if (!response.ok) {
+                console.error('[interview] 아바타 영상 스트리밍 요청 실패:', response.status);
+                return;
+            }
+
+            const reader = response.body.getReader();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
+
+                appendQueue.push(value);
+                flushQueue();
+
+                if (!started) {
+                    started = true;
+                    playAllowed = true;
+                    monitorBuffer();
+                }
+            }
+
+            streamDone = true;
+            if (!appending && appendQueue.length === 0 && mediaSource.readyState === 'open') {
+                try {
+                    mediaSource.endOfStream();
+                } catch (error) {
+                    // 이미 닫힌 스트림이면 무시
+                }
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.error('[interview] 아바타 영상 스트리밍 실패 (텍스트만으로 계속 진행):', error);
+            }
+        } finally {
+            clearTimeout(monitorTimerId);
+        }
     };
 
     const getCandidateVideoUrl = (videoUrl) => {
@@ -304,9 +437,6 @@ function Interview() {
 
     /*
      * HTTP 주소를 WebSocket 주소로 변경
-     *
-     * http://localhost:8001
-     * → ws://localhost:8001
      */
     const getWebSocketUrl = () => {
         return API_BASE_URL
@@ -317,7 +447,6 @@ function Interview() {
     // 1. 면접 페이지 진입 시 백엔드 세션 생성
     const createInterviewSession = async () => {
         try {
-            // 로그인할 때 저장한 사용자 정보에 맞춰 사용합니다.
             const savedUser = localStorage.getItem('user');
             const parsedUser = savedUser
                 ? JSON.parse(savedUser)
@@ -344,8 +473,6 @@ function Interview() {
                     },
                     body: JSON.stringify({
                         user_id: userId,
-
-                        // 현재는 백엔드 테스트용 고정 직무
                         job_category: '프론트엔드 개발자',
                     }),
                 },
@@ -855,7 +982,6 @@ function Interview() {
     };
 
     // 4. PDF를 백엔드로 업로드
-    // 선택된 이력서 파일을 현재 면접 세션에 전송 
     const uploadResumeFile = async (file) => {
         if (!file) {
             addMessage(
@@ -977,10 +1103,6 @@ function Interview() {
                 console.log('WebSocket 수신:', data);
 
                 if (data.type === 'connection_established') {
-                    /*
-                     * 백엔드는 start_interview를 받은 후
-                     * 첫 번째 질문을 전송합니다.
-                     */
                     websocket.send(
                         JSON.stringify({
                             type: 'start_interview',
@@ -1016,8 +1138,10 @@ function Interview() {
                         ),
                     );
 
-                    setInterviewerVideo(
-                        data.avatar_video_base64 || null,
+                    playInterviewerVideoStream(
+                        data.question_text,
+                        data.avatar,
+                        data.duo_avatar_type,
                     );
 
                     stopCandidateVideoAnimation();
@@ -1110,10 +1234,6 @@ function Interview() {
             return;
         }
 
-        /*
-         * 마이크 권한 요청 전에 발언권을 먼저 확보합니다.
-         * getUserMedia를 기다리는 사이 지원자 타이머가 실행되는 것을 방지합니다.
-         */
         clearTimeout(candidateDelayTimerRef.current);
 
         isStartingAnswerRecordingRef.current = true;
@@ -1158,10 +1278,6 @@ function Interview() {
                     },
                 });
 
-            /*
-             * 권한 요청 중 지원자 발언이 시작됐다면
-             * 마이크를 사용하지 않고 종료합니다.
-             */
             if (activeCandidateAnswer) {
                 stream
                     .getTracks()
@@ -1302,9 +1418,6 @@ function Interview() {
                         );
                     };
 
-                    /*
-                     * 마지막 남은 녹음 데이터를 먼저 요청한 후 종료합니다.
-                     */
                     recorder.requestData();
                     recorder.stop();
                 },
@@ -1358,9 +1471,6 @@ function Interview() {
                 );
             }
 
-            /*
-             * 오른쪽 채팅창에 실제 STT 결과 표시
-             */
             addMessage('user', transcribedText);
 
             const websocket = websocketRef.current;
@@ -1374,10 +1484,6 @@ function Interview() {
                 );
             }
 
-            /*
-             * STT 결과와 음성 분석 결과를
-             * WebSocket 평가 로직으로 전달
-             */
             pendingUserAnswerRef.current = {
                 type: 'submit_answer',
                 transcribed_text: transcribedText,
@@ -1414,13 +1520,6 @@ function Interview() {
         }
     };
 
-    /*
-     * 현재 테스트용 텍스트 답변 제출
-     *
-     * 추후 음성인식 기능이 완성되면
-     * STT 결과를 answerText에 넣거나
-     * handleRecordAnswer를 다시 활성화
-     */
     const handleSubmitTextAnswer = () => {
         const trimmedAnswer = answerText.trim();
 
@@ -1473,6 +1572,40 @@ function Interview() {
             handleSubmitTextAnswer();
         }
     };
+
+    // --- 웹캠 권한 요청 및 화면 출력 ---
+    useEffect(() => {
+        let videoStream = null;
+
+        const setupCamera = async () => {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 360 }
+                    }
+                });
+
+                if (userVideoRef.current) {
+                    userVideoRef.current.srcObject = videoStream;
+                }
+                setIsCameraActive(true);
+            } catch (error) {
+                console.error('웹캠 연결 오류:', error);
+                // addMessage('system', '사용자 카메라를 확인할 수 없습니다.');
+            }
+        };
+
+        if (navigator.mediaDevices?.getUserMedia) {
+            setupCamera();
+        }
+
+        return () => {
+            if (videoStream) {
+                videoStream.getTracks().forEach((track) => track.stop());
+            }
+        };
+    }, []);
 
     useEffect(() => {
         const pendingAnswer =
@@ -1875,7 +2008,6 @@ function Interview() {
         );
     };
 
-    // 선택된 지원자 답변을 겹치지 않게 순차적으로 시작
     useEffect(() => {
         clearTimeout(candidateDelayTimerRef.current);
 
@@ -1890,15 +2022,10 @@ function Interview() {
             return;
         }
 
-        // 5초 이상 10초 이하
         const randomDelay =
             5000 + Math.floor(Math.random() * 5001);
 
         candidateDelayTimerRef.current = setTimeout(() => {
-            /*
-             * 타이머가 끝나는 순간 사용자가 녹음을 시작했거나
-             * 답변 분석 중일 수 있으므로 다시 확인합니다.
-             */
             if (
                 isRecordingAnswerRef.current ||
                 isStartingAnswerRecordingRef.current
@@ -1958,7 +2085,6 @@ function Interview() {
         isProcessingAnswer,
     ]);
 
-    // 지원자 답변을 한 글자씩 표시
     useEffect(() => {
         if (
             !activeCandidateAnswer ||
@@ -2066,7 +2192,6 @@ function Interview() {
         };
     }, [activeCandidateAnswer, isCandidateSceneReady]);
 
-    // 페이지 최초 진입 시 면접 세션 생성
     useEffect(() => {
         if (sessionCreatedRef.current) {
             return;
@@ -2077,7 +2202,6 @@ function Interview() {
         createInterviewSession();
     }, []);
 
-    // 메시지 추가 시 채팅창 아래로 이동
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({
             behavior: 'smooth',
@@ -2085,7 +2209,6 @@ function Interview() {
         });
     }, [messages, isRecordingAnswer]);
 
-    // 컴포넌트 종료 시 타이머 및 WebSocket 정리     
     useEffect(() => {
         return () => {
             clearTimeout(candidateDelayTimerRef.current);
@@ -2143,6 +2266,11 @@ function Interview() {
                 websocketRef.current = null;
             }
 
+            if (interviewerStreamAbortRef.current) {
+                interviewerStreamAbortRef.current.abort();
+                interviewerStreamAbortRef.current = null;
+            }
+
             if (interviewerVideoUrlRef.current) {
                 URL.revokeObjectURL(interviewerVideoUrlRef.current);
                 interviewerVideoUrlRef.current = null;
@@ -2175,15 +2303,12 @@ function Interview() {
             </div>
 
             <section className="interview-left">
-                {interviewerVideoUrl && (
-                    <video
-                        key={interviewerVideoUrl}
-                        className="interviewer-avatar-video"
-                        src={interviewerVideoUrl}
-                        autoPlay
-                        playsInline
-                    />
-                )}
+                <video
+                    ref={interviewerVideoRef}
+                    className="interviewer-avatar-video"
+                    autoPlay
+                    playsInline
+                />
 
                 {activeCandidateAnswer && (
                     <video
@@ -2366,6 +2491,24 @@ function Interview() {
             </section>
 
             <aside className="interview-right">
+                {/* --- 추가된 웹캠 영상 표시 영역 --- */}
+                <section className="user-camera-area">
+                    <video
+                        ref={userVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className={`user-video ${isCameraActive ? 'active' : ''}`}
+                    />
+                    {!isCameraActive && (
+                        <div className="camera-placeholder">
+                            <span className="camera-icon">📷</span>
+                            <span>카메라 연결 중...</span>
+                        </div>
+                    )}
+                </section>
+                {/* ------------------------ */}
+
                 <section className="chat-area">
                     <div className="chat-header">
                         <div>

@@ -3,16 +3,23 @@ import base64
 import io
 import json
 import os
+import time
 import uuid
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form
-from fastapi.responses import FileResponse
+import httpx
+import subprocess
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Body
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from PyPDF2 import PdfReader
+import pdfkit # 🚀 WeasyPrint를 대체하는 가장 안정적인 모듈
+
 from schemas import SessionCreateRequest
 from database import get_db
 from audio_analyzer import extract_voice_metrics, calculate_delta
-from musetalk_client import synthesize_avatar_video
+from filler_analyzer import count_filler_words
+from vision_analyzer import check_gaze_loss
 from llm import (
     generate_resume_based_questions,
     evaluate_answer_with_llm,
@@ -21,7 +28,6 @@ from llm import (
     generate_candidate_answer_with_llm,
     AVATAR_VOICE_MAP
 )
-import subprocess
 
 def convert_audio_to_wav(
     input_path: str,
@@ -78,7 +84,6 @@ router = APIRouter(
     tags=["Interviews"]
 )
 
-
 async def build_candidate_answers(
     question_text: str,
     selected_candidates: list[dict],
@@ -121,6 +126,25 @@ async def build_candidate_answers(
     )
 
 
+async def _generate_tts_fallback_base64(text: str, voice: str) -> str | None:
+    """
+    아바타 영상 스트리밍이 실패했을 때 프론트가 대신 재생할 음성만 미리 만들어둡니다.
+    """
+    tts_path = f"temp_fallback_tts_{uuid.uuid4()}.mp3"
+    try:
+        await asyncio.to_thread(generate_text_to_speech, text, tts_path, voice)
+        if not os.path.exists(tts_path):
+            return None
+        with open(tts_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except Exception as error:
+        print(f"[interviews] fallback 음성 생성 오류: {error}")
+        return None
+    finally:
+        if os.path.exists(tts_path):
+            os.remove(tts_path)
+
+
 async def send_next_question(
     websocket: WebSocket,
     question_data: dict | str,
@@ -144,6 +168,12 @@ async def send_next_question(
             selected_candidates,
         )
     )
+    tts_fallback_task = asyncio.create_task(
+        _generate_tts_fallback_base64(question_text, voice)
+    )
+
+    # 듀오 서버 테스트용 임시 매핑: 백엔드의 "hr" 타입 = 듀오 노트북의 "personality" 아바타
+    duo_avatar_type = "personality" if q_type == "hr" else q_type
 
     payload = {
         "type": "next_question",
@@ -152,35 +182,69 @@ async def send_next_question(
         "question_text": question_text,
         "interviewer_type": q_type,
         "avatar": avatar,
-        "avatar_video_base64": None,
+        "duo_avatar_type": duo_avatar_type,
+        "tts_audio_base64": None,  # 아바타 영상 스트리밍 실패 대비 음성만이라도 재생하기 위한 fallback
         "candidate_answers": [],
     }
 
-    tts_path = f"temp_question_tts_{uuid.uuid4()}.mp3"
+    # 아바타 영상은 더 이상 여기서 만들어 기다렸다가 통째로 보내지 않습니다.
+    # 프론트가 질문 텍스트를 받는 즉시 /interviews/avatar-video-stream을 직접 호출해서
+    # MuseTalk 스트리밍 응답을 받아 재생합니다 (완성될 때까지 기다리지 않아도 됨).
+    # tts_audio_base64는 그 스트리밍이 실패했을 때만 프론트가 대신 재생할 fallback이라,
+    # candidate_answers와 마찬가지로 텍스트 전송과 병렬로 준비해서 지연을 최소화합니다.
+    payload["tts_audio_base64"] = await tts_fallback_task
+    payload["candidate_answers"] = await candidate_answers_task
+
+    await websocket.send_json(payload)
+
+
+@router.post("/avatar-video-stream")
+async def avatar_video_stream(payload: dict = Body(...)):
+    """
+    질문 텍스트를 TTS로 변환해서 Colab 듀오 서버의 실시간 스트리밍 엔드포인트로 보내고,
+    그 응답(fMP4 청크 스트림)을 그대로 프론트로 중계합니다.
+    프론트는 전체 영상이 완성되길 기다리지 않고 MediaSource로 도착하는 대로 재생합니다.
+    """
+    question_text = payload.get("text", "")
+    avatar = payload.get("avatar", "middle_aged")
+    duo_avatar_type = payload.get("duo_avatar_type", "technical")
+
+    if not question_text:
+        raise HTTPException(status_code=400, detail="text가 필요합니다.")
+
+    duo_stream_url = os.getenv("MUSETALK_DUO_STREAM_URL")
+    if not duo_stream_url:
+        raise HTTPException(status_code=503, detail="MUSETALK_DUO_STREAM_URL이 설정되지 않았습니다 (.env 확인).")
+
+    t0 = time.time()
+    voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
+    tts_path = f"temp_stream_tts_{uuid.uuid4()}.mp3"
+    generate_text_to_speech(question_text, tts_path, voice=voice)
+    print(f"[stream-timing] TTS 완료: {time.time() - t0:.2f}초", flush=True)
 
     try:
-        # 분리된 아바타의 목소리(voice)로 TTS 생성
-        generate_text_to_speech(question_text, tts_path, voice=voice)
-
-        if os.path.exists(tts_path):
-            video_bytes = await synthesize_avatar_video(tts_path)
-
-            if video_bytes:
-                payload["avatar_video_base64"] = base64.b64encode(
-                    video_bytes
-                ).decode("utf-8")
-    except Exception as error:
-        print(
-            "[interviews] 아바타 영상 생성 중 오류 "
-            f"(텍스트만으로 계속 진행): {error}"
-        )
+        with open(tts_path, "rb") as f:
+            audio_base64 = base64.b64encode(f.read()).decode("utf-8")
     finally:
         if os.path.exists(tts_path):
             os.remove(tts_path)
 
-    payload["candidate_answers"] = await candidate_answers_task
+    async def proxy_stream():
+        first_chunk_logged = False
+        async with httpx.AsyncClient(timeout=None) as client:
+            print(f"[stream-timing] 코랩에 요청 전송: {time.time() - t0:.2f}초", flush=True)
+            async with client.stream(
+                "POST",
+                duo_stream_url,
+                json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
+            ) as response:
+                async for chunk in response.aiter_bytes():
+                    if not first_chunk_logged:
+                        print(f"[stream-timing] 코랩에서 첫 청크 수신: {time.time() - t0:.2f}초", flush=True)
+                        first_chunk_logged = True
+                    yield chunk
 
-    await websocket.send_json(payload)
+    return StreamingResponse(proxy_stream(), media_type="video/mp4")
 
 
 @router.post("/session")
@@ -677,9 +741,9 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         curr_feedback = current_session[2]
         curr_date = current_session[3]
 
-        # 2. 현재 세션의 상세 로그 조회
+        # 2. 현재 세션의 상세 로그 조회 (습관어, 시선 이탈 컬럼 추가)
         logs = db.execute(
-            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage FROM qa_logs WHERE session_id = :s ORDER BY created_at ASC"), 
+            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count FROM qa_logs WHERE session_id = :s ORDER BY created_at ASC"), 
             {"s": session_id}
         ).fetchall()
         
@@ -687,7 +751,8 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         for r in logs:
             details.append({
                 "question": r[0], "user_answer": r[1], "score": r[2], "feedback": r[3],
-                "jitter_delta": r[4], "shimmer_delta": r[5]
+                "jitter_delta": r[4], "shimmer_delta": r[5],
+                "filler_count": r[6], "gaze_loss": r[7]
             })
 
         # 3. 유저의 과거 면접 기록 전체 조회 (트렌드 분석)
@@ -757,6 +822,94 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==========================================
+# 🚀 WeasyPrint 대신 안정적인 pdfkit으로 PDF 생성
+# ==========================================
+@router.get("/{session_id}/pdf")
+def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)):
+    """면접 결과를 PDF 리포트로 구워서 반환합니다."""
+    try:
+        # DB 데이터 조회
+        data = get_interview_results(session_id, db)
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {{ size: A4; margin: 15mm; }}
+            body {{ font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #333; line-height: 1.6; }}
+            h1 {{ color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+            h2 {{ color: #2980b9; margin-top: 30px; }}
+            .summary {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
+            .highlight {{ color: #e74c3c; font-weight: bold; }}
+            .question-box {{ margin-bottom: 25px; padding: 15px; border-left: 4px solid #34495e; background: #fff; border: 1px solid #ecf0f1; page-break-inside: avoid; }}
+            .badge {{ display: inline-block; padding: 4px 8px; background: #ecf0f1; border-radius: 4px; font-size: 12px; margin-right: 5px; }}
+        </style>
+        </head>
+        <body>
+            <h1>AI 면접 분석 종합 리포트</h1>
+            
+            <div class="summary">
+                <h2>📊 면접 종합 요약</h2>
+                <p><strong>종합 점수:</strong> {data['overall_score']}점</p>
+                <p><strong>AI 코멘트:</strong> {data['improvement']['message']}</p>
+            </div>
+            
+            <h2>🗣️ 상세 문항 분석</h2>
+        """
+        
+        for i, detail in enumerate(data['details']):
+            # None 방지 및 줄바꿈 처리
+            feedback_text = (detail['feedback'] or '').replace('\n', '<br>')
+            html_content += f"""
+            <div class="question-box">
+                <h3>Q{i+1}. {detail['question']}</h3>
+                <p><strong>내 답변:</strong> {detail['user_answer']}</p>
+                <p>
+                    <span class="badge">채점: {detail['score']}점</span>
+                    <span class="badge">음성 흔들림: {round(detail['jitter_delta'], 1)}%</span>
+                    <span class="badge highlight">습관어 감지: {detail['filler_count']}회</span>
+                    <span class="badge highlight">시선 이탈: {detail['gaze_loss']}회</span>
+                </p>
+                <p><strong>💡 AI 피드백:</strong><br>{feedback_text}</p>
+            </div>
+            """
+            
+        html_content += "</body></html>"
+        
+        # 1. 시스템에 설치된 wkhtmltopdf 경로 찾기 (기본값)
+        wkhtmltopdf_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+        
+        if os.path.exists(wkhtmltopdf_path):
+            config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+        else:
+            # 환경변수에 등록되어 있거나 리눅스인 경우
+            config = pdfkit.configuration()
+            
+        options = {
+            'page-size': 'A4',
+            'margin-top': '15mm',
+            'margin-right': '15mm',
+            'margin-bottom': '15mm',
+            'margin-left': '15mm',
+            'encoding': "UTF-8",
+            'no-outline': None,
+            'enable-local-file-access': None
+        }
+        
+        # 2. PDF 메모리 변환 수행
+        pdf_bytes = pdfkit.from_string(html_content, False, configuration=config, options=options)
+        
+        return Response(
+            content=pdf_bytes, 
+            media_type='application/pdf',
+            headers={"Content-Disposition": f'attachment; filename="AI_Interview_Report_{session_id}.pdf"'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF 생성 오류: {str(e)}")
+
 
 @router.websocket("/ws/{session_id}")
 async def websocket_interview_endpoint(
@@ -792,6 +945,9 @@ async def websocket_interview_endpoint(
     current_index = 0
     accumulated_score = 0
     selected_candidates: list[dict] = []
+    
+    # 시선 이탈(Vision 분석) 카운터 초기화
+    current_gaze_loss_count = 0 
 
     try:
         await websocket.send_json({
@@ -828,6 +984,12 @@ async def websocket_interview_endpoint(
                     total_questions,
                     selected_candidates,
                 )
+
+            # 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석
+            elif message_type == "video_frame":
+                b64_image = data.get("image", "")
+                if b64_image and check_gaze_loss(b64_image):
+                    current_gaze_loss_count += 1
 
             elif message_type == "submit_answer":
                 user_text = data.get(
@@ -866,6 +1028,9 @@ async def websocket_interview_endpoint(
                     if rag_result
                     else ""
                 )
+                
+                # 습관어(Filler word) 분석 실행
+                filler_count, found_fillers = count_filler_words(user_text)
 
                 evaluation = evaluate_answer_with_llm(
                     current_question_text,
@@ -879,6 +1044,12 @@ async def websocket_interview_endpoint(
                     "오류",
                 )
                 accumulated_score += earned_score
+                
+                # 피드백 텍스트에 습관어 및 시선 처리 경고 문구 덧붙이기
+                if filler_count > 0:
+                    feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다. 불필요한 습관어는 전문성을 떨어뜨릴 수 있으니 유의해 주세요."
+                if current_gaze_loss_count >= 3:
+                    feedback_text += f"\n\n[태도 교정]: 답변 중 화면 밖으로 시선이 벗어난 횟수가 {current_gaze_loss_count}회 감지되었습니다. 면접관과 눈을 맞추듯 렌즈를 응시하세요."
 
                 log_query = text("""
                     INSERT INTO qa_logs (
@@ -889,7 +1060,9 @@ async def websocket_interview_endpoint(
                         shimmer_shaken_percentage,
                         speed_difference_wpm,
                         score,
-                        feedback
+                        feedback,
+                        filler_word_count,
+                        gaze_loss_count
                     )
                     VALUES (
                         :session_id,
@@ -899,7 +1072,9 @@ async def websocket_interview_endpoint(
                         :shimmer,
                         :wpm,
                         :score,
-                        :feedback
+                        :feedback,
+                        :filler,
+                        :gaze
                     )
                 """)
 
@@ -914,6 +1089,8 @@ async def websocket_interview_endpoint(
                         "wpm": wpm_delta,
                         "score": earned_score,
                         "feedback": feedback_text,
+                        "filler": filler_count,
+                        "gaze": current_gaze_loss_count,
                     },
                 )
                 db.commit()
@@ -926,6 +1103,7 @@ async def websocket_interview_endpoint(
                 })
 
                 current_index += 1
+                current_gaze_loss_count = 0 # 다음 문항을 위해 시선 이탈 횟수 초기화
 
                 if current_index < total_questions:
                     await send_next_question(
