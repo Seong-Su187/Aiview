@@ -8,6 +8,9 @@ import './interview.css';
 function Interview() {
     const navigate = useNavigate();
 
+    const DEFAULT_INTERVIEWER_VIDEO_URL =
+        '/assets/interviewer-avatar-video.mp4';
+
     const fileInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
@@ -39,6 +42,9 @@ function Interview() {
     const answerStreamRef = useRef(null);
     const answerChunksRef = useRef([]);
 
+    const interviewerPlaybackIdRef = useRef(0);
+    const isInterviewerStreamPlayingRef = useRef(false);
+
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
     const [sessionId, setSessionId] = useState('');
@@ -69,7 +75,7 @@ function Interview() {
     const [isResumeUploading, setIsResumeUploading] = useState(false);
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
-    
+
     const [isCameraActive, setIsCameraActive] = useState(false); // 추가된 상태
 
     // 나중에 제거
@@ -89,6 +95,8 @@ function Interview() {
     const [isStartingAnswerRecording, setIsStartingAnswerRecording] = useState(false);
     const [hasUserAnsweredCurrentQuestion, setHasUserAnsweredCurrentQuestion] = useState(false);
     const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
+
+    const [isInterviewerSpeaking, setIsInterviewerSpeaking] = useState(false);
 
     const baselineGuideText = `
         안녕하세요. 지금부터 기본 음성 등록을 시작하겠습니다.
@@ -168,18 +176,60 @@ function Interview() {
         return shuffled;
     };
 
+    const restoreDefaultInterviewerVideo = () => {
+        const videoEl = interviewerVideoRef.current;
+
+        if (!videoEl) {
+            return;
+        }
+
+        isInterviewerStreamPlayingRef.current = false;
+
+        if (interviewerVideoUrlRef.current) {
+            URL.revokeObjectURL(
+                interviewerVideoUrlRef.current,
+            );
+
+            interviewerVideoUrlRef.current = null;
+        }
+
+        videoEl.pause();
+        videoEl.removeAttribute('src');
+
+        videoEl.src = DEFAULT_INTERVIEWER_VIDEO_URL;
+        videoEl.loop = true;
+        videoEl.muted = true;
+
+        videoEl.load();
+        videoEl.currentTime = 0;
+
+        videoEl.play().catch((error) => {
+            if (error.name !== 'AbortError') {
+                console.error(
+                    '[interview] 기본 면접관 영상 재생 오류:',
+                    error,
+                );
+            }
+        });
+    };
+
     /*
      * MuseTalk 아바타 영상을 완성될 때까지 기다리지 않고, 도착하는 대로
      * MediaSource(MSE)에 흘려 넣어 재생합니다 (MoodTender 프로젝트의
      * stream_inference.py + _generateStream 패턴을 이식).
      */
-    const playInterviewerVideoStream = async (text, avatar, duoAvatarType) => {
+    const playInterviewerVideoStream = async (
+        text,
+        avatar,
+        duoAvatarType,
+    ) => {
         const videoEl = interviewerVideoRef.current;
+
         if (!videoEl || !text) {
-            return;
+            return false;
         }
 
-        // 이전 질문의 스트리밍이 아직 끝나지 않았다면 취소
+        // 이전 질문 영상 생성이 진행 중이면 취소
         if (interviewerStreamAbortRef.current) {
             interviewerStreamAbortRef.current.abort();
         }
@@ -187,32 +237,40 @@ function Interview() {
         const abortController = new AbortController();
         interviewerStreamAbortRef.current = abortController;
 
+        // 이전 스트리밍 영상 URL 정리
         if (interviewerVideoUrlRef.current) {
-            URL.revokeObjectURL(interviewerVideoUrlRef.current);
+            URL.revokeObjectURL(
+                interviewerVideoUrlRef.current,
+            );
+
             interviewerVideoUrlRef.current = null;
         }
 
-        const MIME = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-        if (!('MediaSource' in window) || !MediaSource.isTypeSupported(MIME)) {
-            console.error('[interview] 이 브라우저는 아바타 영상 스트리밍(MSE)을 지원하지 않습니다.');
-            return;
+        const MIME =
+            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+
+        if (
+            !('MediaSource' in window) ||
+            !MediaSource.isTypeSupported(MIME)
+        ) {
+            console.error(
+                '[interview] 이 브라우저는 아바타 영상 스트리밍을 지원하지 않습니다.',
+            );
+
+            restoreDefaultInterviewerVideo();
+
+            return false;
         }
 
-        const mediaSource = new MediaSource();
-        const objectUrl = URL.createObjectURL(mediaSource);
-        interviewerVideoUrlRef.current = objectUrl;
-        videoEl.src = objectUrl;
+        /*
+         * 백엔드 영상의 첫 데이터가 도착하기 전까지는
+         * 기본 면접관 영상을 계속 재생하기 위해 나중에 생성합니다.
+         */
+        let mediaSource = null;
+        let sourceBuffer = null;
 
-        await new Promise((resolve) => {
-            mediaSource.addEventListener('sourceopen', resolve, { once: true });
-        });
-
-        if (abortController.signal.aborted) {
-            return;
-        }
-
-        const sourceBuffer = mediaSource.addSourceBuffer(MIME);
         const appendQueue = [];
+
         let appending = false;
         let streamDone = false;
         let monitorTimerId = null;
@@ -220,56 +278,175 @@ function Interview() {
         let playAllowed = false;
 
         const flushQueue = () => {
-            if (appending || appendQueue.length === 0 || mediaSource.readyState !== 'open') {
+            if (
+                !mediaSource ||
+                !sourceBuffer ||
+                appending ||
+                appendQueue.length === 0 ||
+                mediaSource.readyState !== 'open'
+            ) {
                 return;
             }
 
             appending = true;
-            sourceBuffer.appendBuffer(appendQueue.shift());
+
+            try {
+                sourceBuffer.appendBuffer(
+                    appendQueue.shift(),
+                );
+            } catch (error) {
+                appending = false;
+
+                console.error(
+                    '[interview] 영상 데이터 추가 오류:',
+                    error,
+                );
+            }
         };
 
-        sourceBuffer.addEventListener('updateend', () => {
-            appending = false;
-
-            if (streamDone && appendQueue.length === 0) {
-                try {
-                    mediaSource.endOfStream();
-                } catch (error) {
-                    // 이미 닫힌 스트림이면 무시
-                }
-            } else {
-                flushQueue();
-            }
-        });
-
-        sourceBuffer.addEventListener('error', (error) => {
-            console.error('[interview] MSE SourceBuffer 오류:', error);
-        });
-
-        const PAUSE_THRESHOLD = 0.05;
-        const RESUME_THRESHOLD = 1.0;
-
         const monitorBuffer = () => {
-            if (!started || videoEl.ended || abortController.signal.aborted) {
+            if (
+                !started ||
+                videoEl.ended ||
+                abortController.signal.aborted
+            ) {
                 return;
             }
 
             const buffered = videoEl.buffered;
+
             if (buffered.length > 0) {
-                const ahead = buffered.end(buffered.length - 1) - videoEl.currentTime;
+                const bufferedEnd =
+                    buffered.end(buffered.length - 1);
+
+                const ahead =
+                    bufferedEnd - videoEl.currentTime;
+
+                const PAUSE_THRESHOLD = 0.05;
+                const RESUME_THRESHOLD = 1.0;
 
                 if (!streamDone) {
-                    if (!videoEl.paused && ahead < PAUSE_THRESHOLD) {
+                    if (
+                        !videoEl.paused &&
+                        ahead < PAUSE_THRESHOLD
+                    ) {
                         videoEl.pause();
-                    } else if (videoEl.paused && playAllowed && ahead >= RESUME_THRESHOLD) {
-                        videoEl.play().catch(() => {});
+                    } else if (
+                        videoEl.paused &&
+                        playAllowed &&
+                        ahead >= RESUME_THRESHOLD
+                    ) {
+                        videoEl.play().catch(() => { });
                     }
-                } else if (videoEl.paused && playAllowed) {
-                    videoEl.play().catch(() => {});
+                } else if (
+                    videoEl.paused &&
+                    playAllowed
+                ) {
+                    videoEl.play().catch(() => { });
                 }
             }
 
-            monitorTimerId = setTimeout(monitorBuffer, 200);
+            monitorTimerId =
+                setTimeout(monitorBuffer, 200);
+        };
+
+        const initializeStreamVideo = async () => {
+            mediaSource = new MediaSource();
+
+            const objectUrl =
+                URL.createObjectURL(mediaSource);
+
+            interviewerVideoUrlRef.current =
+                objectUrl;
+
+            isInterviewerStreamPlayingRef.current =
+                true;
+
+            // 이 시점까지는 기본 영상이 계속 재생되고 있었음
+            videoEl.pause();
+            videoEl.loop = false;
+            videoEl.muted = false;
+
+            videoEl.removeAttribute('src');
+            videoEl.load();
+
+            videoEl.src = objectUrl;
+
+            await new Promise((resolve, reject) => {
+                const handleSourceOpen = () => {
+                    resolve();
+                };
+
+                const handleSourceError = () => {
+                    reject(
+                        new Error(
+                            'MediaSource를 열지 못했습니다.',
+                        ),
+                    );
+                };
+
+                mediaSource.addEventListener(
+                    'sourceopen',
+                    handleSourceOpen,
+                    { once: true },
+                );
+
+                mediaSource.addEventListener(
+                    'error',
+                    handleSourceError,
+                    { once: true },
+                );
+            });
+
+            if (abortController.signal.aborted) {
+                throw new DOMException(
+                    '스트리밍 요청이 취소되었습니다.',
+                    'AbortError',
+                );
+            }
+
+            sourceBuffer =
+                mediaSource.addSourceBuffer(MIME);
+
+            sourceBuffer.addEventListener(
+                'updateend',
+                () => {
+                    appending = false;
+
+                    if (
+                        streamDone &&
+                        appendQueue.length === 0
+                    ) {
+                        if (
+                            mediaSource.readyState ===
+                            'open'
+                        ) {
+                            try {
+                                mediaSource.endOfStream();
+                            } catch (error) {
+                                // 이미 종료된 스트림이면 무시
+                            }
+                        }
+                    } else {
+                        flushQueue();
+                    }
+                },
+            );
+
+            sourceBuffer.addEventListener(
+                'error',
+                (error) => {
+                    console.error(
+                        '[interview] MSE SourceBuffer 오류:',
+                        error,
+                    );
+                },
+            );
+
+            started = true;
+            playAllowed = true;
+
+            monitorBuffer();
         };
 
         try {
@@ -277,53 +454,110 @@ function Interview() {
                 `${API_BASE_URL}/interviews/avatar-video-stream`,
                 {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         text,
                         avatar,
-                        duo_avatar_type: duoAvatarType,
+                        duo_avatar_type:
+                            duoAvatarType,
                     }),
-                    signal: abortController.signal,
+                    signal:
+                        abortController.signal,
                 },
             );
 
             if (!response.ok) {
-                console.error('[interview] 아바타 영상 스트리밍 요청 실패:', response.status);
-                return;
+                console.error(
+                    '[interview] 아바타 영상 스트리밍 요청 실패:',
+                    response.status,
+                );
+
+                restoreDefaultInterviewerVideo();
+
+                return false;
             }
 
-            const reader = response.body.getReader();
+            if (!response.body) {
+                console.error(
+                    '[interview] 아바타 영상 응답 데이터가 없습니다.',
+                );
+
+                restoreDefaultInterviewerVideo();
+
+                return false;
+            }
+
+            const reader =
+                response.body.getReader();
 
             while (true) {
-                const { done, value } = await reader.read();
+                const { done, value } =
+                    await reader.read();
+
                 if (done) {
                     break;
                 }
 
+                if (
+                    !value ||
+                    value.byteLength === 0
+                ) {
+                    continue;
+                }
+
+                /*
+                 * 첫 번째 영상 데이터가 실제로 도착한 순간에만
+                 * 기본 영상에서 백엔드 영상으로 전환
+                 */
+                if (!started) {
+                    await initializeStreamVideo();
+                }
+
                 appendQueue.push(value);
                 flushQueue();
+            }
 
-                if (!started) {
-                    started = true;
-                    playAllowed = true;
-                    monitorBuffer();
-                }
+            // 데이터가 하나도 오지 않은 경우
+            if (!started) {
+                console.error(
+                    '[interview] 생성된 아바타 영상 데이터가 없습니다.',
+                );
+
+                restoreDefaultInterviewerVideo();
+
+                return false;
             }
 
             streamDone = true;
-            if (!appending && appendQueue.length === 0 && mediaSource.readyState === 'open') {
+
+            if (
+                mediaSource &&
+                sourceBuffer &&
+                !appending &&
+                appendQueue.length === 0 &&
+                mediaSource.readyState === 'open'
+            ) {
                 try {
                     mediaSource.endOfStream();
                 } catch (error) {
-                    // 이미 닫힌 스트림이면 무시
+                    // 이미 종료된 스트림이면 무시
                 }
             }
+
+            return true;
         } catch (error) {
             if (error.name !== 'AbortError') {
-                console.error('[interview] 아바타 영상 스트리밍 실패 (텍스트만으로 계속 진행):', error);
+                console.error(
+                    '[interview] 아바타 영상 스트리밍 실패:',
+                    error,
+                );
+
+                restoreDefaultInterviewerVideo();
             }
-        } finally {
-            clearTimeout(monitorTimerId);
+
+            return false;
         }
     };
 
@@ -1138,11 +1372,24 @@ function Interview() {
                         ),
                     );
 
+                    const playbackId = interviewerPlaybackIdRef.current + 1;
+                    interviewerPlaybackIdRef.current = playbackId;
+
+                    setIsInterviewerSpeaking(true);
+
                     playInterviewerVideoStream(
                         data.question_text,
                         data.avatar,
                         data.duo_avatar_type,
-                    );
+                    ).then((success) => {
+                        // 이전 질문의 비동기 작업이 현재 질문 상태를 건드리지 않도록 방지
+                        if (
+                            success === false &&
+                            interviewerPlaybackIdRef.current === playbackId
+                        ) {
+                            setIsInterviewerSpeaking(false);
+                        }
+                    });
 
                     stopCandidateVideoAnimation();
 
@@ -1229,7 +1476,9 @@ function Interview() {
             isRecordingAnswerRef.current ||
             isStartingAnswerRecordingRef.current ||
             activeCandidateAnswer ||
-            hasUserAnsweredCurrentQuestion
+            hasUserAnsweredCurrentQuestion ||
+            isInterviewerSpeaking ||
+            isProcessingAnswer
         ) {
             return;
         }
@@ -1525,6 +1774,7 @@ function Interview() {
 
         if (
             step !== 'answer' ||
+            isInterviewerSpeaking ||
             activeCandidateAnswer ||
             hasUserAnsweredCurrentQuestion
         ) {
@@ -1927,6 +2177,7 @@ function Interview() {
                                     : startAnswerRecording
                             }
                             disabled={
+                                isInterviewerSpeaking ||
                                 isCandidateSpeaking ||
                                 isStartingAnswerRecording ||
                                 isProcessingAnswer ||
@@ -1944,15 +2195,17 @@ function Interview() {
 
                             {isRecordingAnswer
                                 ? '답변 녹음 종료'
-                                : isProcessingAnswer
-                                    ? '답변 분석 중...'
-                                    : isStartingAnswerRecording
-                                        ? '마이크 연결 중...'
-                                        : hasUserAnsweredCurrentQuestion
-                                            ? '답변 완료'
-                                            : isCandidateSpeaking
-                                                ? `${activeCandidateAnswer?.name} 답변 중`
-                                                : '답변 녹음 시작'}
+                                : isInterviewerSpeaking
+                                    ? '면접관 질문 중'
+                                    : isProcessingAnswer
+                                        ? '답변 분석 중...'
+                                        : isStartingAnswerRecording
+                                            ? '마이크 연결 중...'
+                                            : hasUserAnsweredCurrentQuestion
+                                                ? '답변 완료'
+                                                : isCandidateSpeaking
+                                                    ? `${activeCandidateAnswer?.name} 답변 중`
+                                                    : '답변 녹음 시작'}
                         </button>
                     )}
 
@@ -1972,6 +2225,7 @@ function Interview() {
                                 }
                                 rows={3}
                                 disabled={
+                                    isInterviewerSpeaking ||
                                     isCandidateSpeaking ||
                                     hasUserAnsweredCurrentQuestion
                                 }
@@ -1983,6 +2237,7 @@ function Interview() {
                                 onClick={handleSubmitTextAnswer}
                                 disabled={
                                     !answerText.trim() ||
+                                    isInterviewerSpeaking ||
                                     isCandidateSpeaking ||
                                     hasUserAnsweredCurrentQuestion
                                 }
@@ -2013,6 +2268,7 @@ function Interview() {
 
         if (
             step !== 'answer' ||
+            isInterviewerSpeaking ||
             activeCandidateAnswer ||
             candidateAnswerQueue.length === 0 ||
             isRecordingAnswer ||
@@ -2078,6 +2334,7 @@ function Interview() {
         };
     }, [
         step,
+        isInterviewerSpeaking,
         activeCandidateAnswer,
         candidateAnswerQueue,
         isRecordingAnswer,
@@ -2306,8 +2563,37 @@ function Interview() {
                 <video
                     ref={interviewerVideoRef}
                     className="interviewer-avatar-video"
+                    src={DEFAULT_INTERVIEWER_VIDEO_URL}
                     autoPlay
+                    muted
+                    loop
                     playsInline
+                    preload="auto"
+                    onEnded={() => {
+                        if (!isInterviewerStreamPlayingRef.current) {
+                            return;
+                        }
+
+                        setIsInterviewerSpeaking(false);
+                        restoreDefaultInterviewerVideo();
+                    }}
+                    onError={(event) => {
+                        const video = event.currentTarget;
+
+                        console.error(
+                            '[interview] 면접관 영상 재생 오류:',
+                            {
+                                src: video.currentSrc,
+                                errorCode: video.error?.code,
+                                errorMessage: video.error?.message,
+                            },
+                        );
+
+                        if (isInterviewerStreamPlayingRef.current) {
+                            setIsInterviewerSpeaking(false);
+                            restoreDefaultInterviewerVideo();
+                        }
+                    }}
                 />
 
                 {activeCandidateAnswer && (
