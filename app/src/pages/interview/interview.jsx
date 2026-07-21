@@ -111,6 +111,7 @@ function Interview() {
     const interviewerPlaybackIdRef = useRef(0);
     const isInterviewerStreamPlayingRef = useRef(false);
     const isDefaultVideoTransitioningRef = useRef(false);
+    const pendingInterviewerMessageRef = useRef(null);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
@@ -1078,13 +1079,13 @@ function Interview() {
         } catch (error) {
             console.error('기존 이력서 사용 오류:', error);
 
+            setIsResumeUploading(false);
+
             addMessage(
                 'system',
                 error.message ||
                 '기존 이력서를 처리하는 중 오류가 발생했습니다.',
             );
-        } finally {
-            setIsResumeUploading(false);
         }
     };
 
@@ -1448,13 +1449,13 @@ function Interview() {
         } catch (error) {
             console.error('이력서 업로드 오류:', error);
 
+            setIsResumeUploading(false);
+
             addMessage(
                 'system',
                 error.message ||
                 '이력서를 처리하는 중 오류가 발생했습니다.',
             );
-        } finally {
-            setIsResumeUploading(false);
         }
     };
 
@@ -1660,17 +1661,18 @@ function Interview() {
                     const isTechQuestion = data.interviewer_type === 'technical' || data.avatar === 'middle_aged';
                     setCurrentInterviewer(isTechQuestion ? 'tech' : 'hr');
 
-                    addMessage(
-                        'interviewer',
-                        data.question_text,
-                        getInterviewerName(
+                    const playbackId = interviewerPlaybackIdRef.current + 1;
+                    interviewerPlaybackIdRef.current = playbackId;
+
+                    // 립싱크 영상이 실제로 시작될 때 표시할 질문 저장
+                    pendingInterviewerMessageRef.current = {
+                        playbackId,
+                        text: data.question_text,
+                        name: getInterviewerName(
                             data.interviewer_type,
                             data.avatar,
                         ),
-                    );
-
-                    const playbackId = interviewerPlaybackIdRef.current + 1;
-                    interviewerPlaybackIdRef.current = playbackId;
+                    };
 
                     setIsInterviewerSpeaking(true);
 
@@ -1683,10 +1685,26 @@ function Interview() {
                             success === false &&
                             interviewerPlaybackIdRef.current === playbackId
                         ) {
+                            // 영상 생성에 실패한 경우에도 질문은 채팅으로 표시
+                            const pendingMessage =
+                                pendingInterviewerMessageRef.current;
+
+                            if (
+                                pendingMessage &&
+                                pendingMessage.playbackId === playbackId
+                            ) {
+                                addMessage(
+                                    'interviewer',
+                                    pendingMessage.text,
+                                    pendingMessage.name,
+                                );
+
+                                pendingInterviewerMessageRef.current = null;
+                            }
+
                             setIsInterviewerSpeaking(false);
                         }
                     });
-
                     stopCandidateVideoAnimation();
 
                     setActiveCandidateAnswer(null);
@@ -3479,6 +3497,24 @@ function Interview() {
                         preload="auto"
                         onPlaying={() => {
                             setIsInterviewerStreamVisible(true);
+
+                            const pendingMessage =
+                                pendingInterviewerMessageRef.current;
+
+                            if (
+                                pendingMessage &&
+                                pendingMessage.playbackId ===
+                                interviewerPlaybackIdRef.current
+                            ) {
+                                addMessage(
+                                    'interviewer',
+                                    pendingMessage.text,
+                                    pendingMessage.name,
+                                );
+
+                                // onPlaying이 일시정지 후 재개될 때 또 실행될 수 있으므로 제거
+                                pendingInterviewerMessageRef.current = null;
+                            }
                         }}
                         onEnded={() => {
                             if (!isInterviewerStreamPlayingRef.current) {
