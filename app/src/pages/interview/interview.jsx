@@ -5,8 +5,6 @@ import API_BASE_URL from '../../config/apiConfig';
 import '../../index.css';
 import './interview.css';
 
-// 🚀 Vite 모듈 충돌을 피하기 위해 상단의 MediaPipe import 문을 모두 제거했습니다.
-
 function Interview() {
     const navigate = useNavigate();
 
@@ -25,10 +23,16 @@ function Interview() {
     const selfieSegmentationRef = useRef(null);
     const renderLoopRef = useRef(null); // 수동 프레임 루프 관리를 위한 Ref
     
-    // 시선 영점 조절용 State
-    const [baselineNose, setBaselineNose] = useState(0.5);
-    const [baselineIris, setBaselineIris] = useState(0.5);
+    // 시선 영점 조절용 State (2단계)
+    const [calibrationPhase, setCalibrationPhase] = useState('hr_ready'); // hr_ready, hr_calibrating, tech_ready, tech_calibrating
+    const [baselines, setBaselines] = useState({ 
+        hrNose: 0.5, hrIris: 0.5, 
+        techNose: 0.5, techIris: 0.5 
+    });
     const [calibrationCountdown, setCalibrationCountdown] = useState(0);
+
+    // 🚀 추가: 현재 쳐다봐야 할 대상(질문 중인 면접관) 상태 관리
+    const [currentInterviewer, setCurrentInterviewer] = useState('hr'); // 'hr' 또는 'tech'
 
     const candidateDelayTimerRef = useRef(null);
 
@@ -1300,8 +1304,24 @@ function Interview() {
         }
         
         setStep('calibrate_vision');
+        setCalibrationPhase('hr_ready'); // 첫 번째 단계: 인사 면접관(왼쪽) 대기
+        setCalibrationCountdown(3); 
+        addMessage('system', '시선 추적을 위한 영점 조절을 2단계로 진행합니다. 먼저 왼쪽에 있는 인사 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.');
+    };
+
+    const handleStartCalibration = () => {
+        const currentPhase = calibrationPhase;
+        const targetType = currentPhase === 'hr_ready' ? 'hr' : 'tech';
+
+        if (currentPhase === 'hr_ready') {
+            setCalibrationPhase('hr_calibrating');
+            addMessage('system', '정확한 시선 분석을 위해 왼쪽 인사 면접관의 눈을 바라봐 주세요.');
+        } else if (currentPhase === 'tech_ready') {
+            setCalibrationPhase('tech_calibrating');
+            addMessage('system', '정확한 시선 분석을 위해 오른쪽 기술 면접관의 눈을 바라봐 주세요.');
+        }
+
         setCalibrationCountdown(3);
-        addMessage('system', '정확한 시선 분석을 위해 화면 속 면접관의 눈을 바라봐 주세요.');
 
         let countdown = 3;
         const capturedFrames = [];
@@ -1317,13 +1337,13 @@ function Interview() {
 
             if (countdown === 0) {
                 clearInterval(timer);
-                finishVisionCalibration(capturedFrames);
+                finishVisionCalibration(targetType, capturedFrames);
             }
         }, 1000);
     };
 
-    const finishVisionCalibration = async (frames) => {
-        addMessage('system', '시선 추적 기준점을 계산하고 있습니다...');
+    const finishVisionCalibration = async (type, frames) => {
+        addMessage('system', `${type === 'hr' ? '왼쪽(인사)' : '오른쪽(기술)'} 시선 추적 기준점을 계산하고 있습니다...`);
         try {
             const response = await fetch(`${API_BASE_URL}/interviews/calibrate-vision`, {
                 method: 'POST',
@@ -1334,18 +1354,29 @@ function Interview() {
             const data = await response.json();
             
             if (response.ok) {
-                setBaselineNose(data.baseline_nose);
-                setBaselineIris(data.baseline_iris);
-                addMessage('system', '영점 조절이 완료되었습니다. 곧 면접이 시작됩니다.');
+                if (type === 'hr') {
+                    setBaselines(prev => ({ ...prev, hrNose: data.baseline_nose, hrIris: data.baseline_iris }));
+                    setCalibrationPhase('tech_ready');
+                    addMessage('system', '왼쪽 영점 조절이 완료되었습니다. 이어서 오른쪽 기술 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.');
+                } else {
+                    setBaselines(prev => ({ ...prev, techNose: data.baseline_nose, techIris: data.baseline_iris }));
+                    addMessage('system', '오른쪽 영점 조절이 완료되었습니다. 곧 면접이 시작됩니다.');
+                    connectWebSocket();
+                }
             } else {
                 throw new Error("분석 실패");
             }
         } catch (error) {
             console.error('Vision Calibration Error:', error);
-            setBaselineNose(0.5);
-            setBaselineIris(0.5);
-        } finally {
-            connectWebSocket();
+            if (type === 'hr') {
+                setBaselines(prev => ({ ...prev, hrNose: 0.5, hrIris: 0.5 }));
+                setCalibrationPhase('tech_ready');
+                addMessage('system', '왼쪽 영점 조절에 실패하여 기본값으로 설정되었습니다. 이어서 오른쪽 기술 면접관의 눈을 바라보고 시작 버튼을 눌러주세요.');
+            } else {
+                setBaselines(prev => ({ ...prev, techNose: 0.5, techIris: 0.5 }));
+                addMessage('system', '오른쪽 영점 조절에 실패하여 기본값으로 설정되었습니다. 곧 면접이 시작됩니다.');
+                connectWebSocket();
+            }
         }
     };
 
@@ -1405,6 +1436,10 @@ function Interview() {
                     setQuestionIndex(data.current_index - 1);
                     setTotalQuestions(data.total_questions);
                     setStep('answer');
+
+                    // 🚀 추가: 어떤 면접관이 질문하는지 파악하여 상태 업데이트
+                    const isTechQuestion = data.interviewer_type === 'technical' || data.avatar === 'middle_aged';
+                    setCurrentInterviewer(isTechQuestion ? 'tech' : 'hr');
 
                     addMessage(
                         'interviewer',
@@ -1852,7 +1887,6 @@ function Interview() {
         }
     };
 
-    // 🚀 수정: 버그가 많은 MediaPipe Camera 클래스 대신, 네이티브 getUserMedia 및 requestAnimationFrame 루프를 직접 사용
     const startUserCamera = async () => {
         try {
             const MP_SelfieSegmentation = window.SelfieSegmentation;
@@ -1918,7 +1952,6 @@ function Interview() {
                 let lastVideoTime = -1;
                 let isProcessing = false; // 중복 처리 방지용 락(Lock)
 
-                // 🚀 핵심 수정: 브라우저 렌더링 프레임 단위로 수동 업데이트 루프 생성 (멈춤 버그 완벽 방지)
                 const processFrame = async () => {
                     // 비디오가 멈췄거나 종료되었으면 루프 무시
                     if (!videoElement.paused && !videoElement.ended && videoElement.readyState >= 2) {
@@ -1976,27 +2009,40 @@ function Interview() {
         startUserCamera();
     };
 
+    // 🚀 수정: 서버로 프레임 보낼 때 현재 질문 중인 면접관에 맞춰 기준값을 교체하여 전송
     useEffect(() => {
         let interval;
         if (step === 'answer' && isCameraActive && websocketRef.current?.readyState === WebSocket.OPEN) {
             interval = setInterval(() => {
                 if (canvasRef.current) {
-                    // 품질 0.6으로 압축하여 Base64로 전송
                     const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.6);
+                    
+                    // 현재 질문 중인 면접관에 따라 사용할 기준값 선택
+                    const activeNose = currentInterviewer === 'tech' ? baselines.techNose : baselines.hrNose;
+                    const activeIris = currentInterviewer === 'tech' ? baselines.techIris : baselines.hrIris;
+
                     websocketRef.current.send(
                         JSON.stringify({
                             type: 'video_frame',
                             image: base64Image,
-                            baseline_nose: baselineNose,
-                            baseline_iris: baselineIris
+                            current_target: currentInterviewer, // 현재 쳐다봐야 할 면접관 (서버 참고용)
+                            baseline_nose: activeNose,          // 동적으로 바뀌는 실제 검사 기준값
+                            baseline_iris: activeIris,
+                            
+                            // (혹시 모를 서버 로그 기록이나 하위 호환성을 위한 개별 데이터 유지)
+                            baseline_nose_hr: baselines.hrNose,
+                            baseline_iris_hr: baselines.hrIris,
+                            baseline_nose_tech: baselines.techNose,
+                            baseline_iris_tech: baselines.techIris
                         })
                     );
                 }
-            }, 1000); // 1초(1000ms) 주기
+            }, 1000); 
         }
 
+        // 의존성 배열에 currentInterviewer를 추가하여, 면접관이 바뀔 때마다 interval이 새로 갱신되도록 합니다.
         return () => clearInterval(interval);
-    }, [step, isCameraActive, baselineNose, baselineIris]);
+    }, [step, isCameraActive, baselines, currentInterviewer]);
 
 
     useEffect(() => {
@@ -2310,16 +2356,58 @@ function Interview() {
         }
 
         if (step === 'calibrate_vision') {
-            return (
-                <button
-                    type="button"
-                    className="interview-action-button record-button recording"
-                    disabled
-                >
-                    <span className="action-icon">👁️</span>
-                    화면 속 면접관의 눈을 바라보세요 ({calibrationCountdown}초)
-                </button>
-            );
+            if (calibrationPhase === 'hr_ready') {
+                return (
+                    <button
+                        type="button"
+                        className="interview-action-button record-button"
+                        onClick={handleStartCalibration}
+                    >
+                        <span className="action-icon">🎯</span>
+                        인사 면접관(왼쪽) 영점 조절 시작
+                    </button>
+                );
+            }
+            
+            if (calibrationPhase === 'hr_calibrating') {
+                return (
+                    <button
+                        type="button"
+                        className="interview-action-button record-button recording"
+                        disabled
+                    >
+                        <span className="action-icon">👁️</span>
+                        왼쪽 인사 면접관을 바라보세요 ({calibrationCountdown}초)
+                    </button>
+                );
+            }
+
+            if (calibrationPhase === 'tech_ready') {
+                return (
+                    <button
+                        type="button"
+                        className="interview-action-button record-button"
+                        onClick={handleStartCalibration}
+                        style={{ backgroundColor: '#2d6a4f' }} // 버튼 색상 변경하여 구분감 추가
+                    >
+                        <span className="action-icon">🎯</span>
+                        기술 면접관(오른쪽) 영점 조절 시작
+                    </button>
+                );
+            }
+
+            if (calibrationPhase === 'tech_calibrating') {
+                return (
+                    <button
+                        type="button"
+                        className="interview-action-button record-button recording"
+                        disabled
+                    >
+                        <span className="action-icon">👁️</span>
+                        오른쪽 기술 면접관을 바라보세요 ({calibrationCountdown}초)
+                    </button>
+                );
+            }
         }
 
         if (step === 'answer') {
@@ -2953,7 +3041,6 @@ function Interview() {
 
             <aside className="interview-right">
                 <section className="user-camera-area">
-                    {/* 🚀 수정: 브라우저가 영상을 멈추지 않도록 투명도 0.001 지정, 위치 겹침 방지 */}
                     <video
                         ref={userVideoRef}
                         autoPlay

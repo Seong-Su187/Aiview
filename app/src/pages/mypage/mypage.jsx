@@ -35,18 +35,20 @@ const CHART_SERIES = [
         className: 'wpm',
     },
     {
-        key: 'averageGaze',
-        label: '시선 유지',
-        unit: '%',
+        key: 'averageFiller',
+        label: '평균 습관어',
+        unit: '회',
         fixed: 1,
-        className: 'gaze',
+        className: 'filler',
+        color: '#FF1744', // 🔴 눈에 확 띄는 강렬한 레드
     },
     {
-        key: 'averageEmotion',
-        label: '긍정 표정',
-        unit: '%',
+        key: 'averageGazeLoss',
+        label: '평균 시선이탈',
+        unit: '회',
         fixed: 1,
-        className: 'emotion',
+        className: 'gaze-loss',
+        color: '#00BFFF', // 🔵 눈에 확 띄는 밝은 스카이블루
     },
 ];
 
@@ -149,7 +151,10 @@ function InterviewAverageChart({ data }) {
                             key={series.key}
                             className={`chart-legend-item ${series.className}`}
                         >
-                            <span className="chart-legend-line" />
+                            <span 
+                                className="chart-legend-line"
+                                style={series.color ? { backgroundColor: series.color } : {}} 
+                            />
                             <strong>{series.label}</strong>
                         </div>
                     ))}
@@ -229,6 +234,7 @@ function InterviewAverageChart({ data }) {
                                     <polyline
                                         className="combined-chart-line"
                                         points={polylinePoints}
+                                        style={series.color ? { stroke: series.color } : {}}
                                     />
                                 )}
 
@@ -243,6 +249,7 @@ function InterviewAverageChart({ data }) {
                                             cx={point.x}
                                             cy={point.y}
                                             r="5"
+                                            style={series.color ? { stroke: series.color } : {}}
                                         >
                                             <title>
                                                 {`${point.label} · `}
@@ -297,18 +304,18 @@ function InterviewAverageChart({ data }) {
                                 ? `${item.averageWpm.toFixed(0)}wpm`
                                 : '-'}
                         </span>
-                        
+
                         <span>
-                            시선 유지{' '}
-                            {Number.isFinite(item.averageGaze)
-                                ? `${item.averageGaze.toFixed(1)}%`
+                            습관어{' '}
+                            {Number.isFinite(item.averageFiller)
+                                ? `${item.averageFiller.toFixed(1)}회`
                                 : '-'}
                         </span>
 
                         <span>
-                            긍정 표정{' '}
-                            {Number.isFinite(item.averageEmotion)
-                                ? `${item.averageEmotion.toFixed(1)}%`
+                            시선 이탈{' '}
+                            {Number.isFinite(item.averageGazeLoss)
+                                ? `${item.averageGazeLoss.toFixed(1)}회`
                                 : '-'}
                         </span>
                     </div>
@@ -465,14 +472,14 @@ function MyPage() {
                     'speed_difference_wpm',
                 ),
 
-                averageGaze: calculateAverage(
+                averageFiller: calculateAverage(
                     session.qaLogs,
-                    'gaze_percentage',
+                    'filler_word_count',
                 ),
 
-                averageEmotion: calculateAverage(
+                averageGazeLoss: calculateAverage(
                     session.qaLogs,
-                    'emotion_percentage',
+                    'gaze_loss_count',
                 ),
             }));
     }, [sessions]);
@@ -743,22 +750,22 @@ function MyPage() {
                                                     </div>
 
                                                     <div>
-                                                        <span>시선 유지율</span>
+                                                        <span>습관어 사용</span>
 
                                                         <strong>
-                                                            {formatMetric(
-                                                                log.gaze_percentage, 1, '%',
-                                                            )}
+                                                            {log.filler_word_count !== null && log.filler_word_count !== undefined
+                                                                ? `${log.filler_word_count}회`
+                                                                : '-'}
                                                         </strong>
                                                     </div>
 
                                                     <div>
-                                                        <span>긍정 표정</span>
+                                                        <span>시선 이탈</span>
 
                                                         <strong>
-                                                            {formatMetric(
-                                                                log.emotion_percentage, 1, '%',
-                                                            )}
+                                                            {log.gaze_loss_count !== null && log.gaze_loss_count !== undefined
+                                                                ? `${log.gaze_loss_count}회`
+                                                                : '-'}
                                                         </strong>
                                                     </div>
                                                 </div>
