@@ -5,8 +5,25 @@ import API_BASE_URL from '../../config/apiConfig';
 import '../../index.css';
 import './interview.css';
 
+const INTERVIEW_COMPLETE_CONFETTI = Array.from(
+    { length: 36 },
+    (_, index) => ({
+        id: index,
+        left: `${3 + ((index * 17) % 94)}%`,
+        delay: `${(index % 12) * 0.08}s`,
+        duration: `${1.8 + (index % 5) * 0.25}s`,
+        rotation: `${(index * 47) % 360}deg`,
+        drift: `${-90 + ((index * 37) % 180)}px`,
+        colorIndex: index % 6,
+    }),
+);
+
 function Interview() {
     const navigate = useNavigate();
+
+    const handleCompleteNavigation = (path) => {
+        navigate(path, { replace: true });
+    };
 
     const INTERVIEWER_DEFAULT_VIDEOS = [
         {
@@ -2345,6 +2362,52 @@ function Interview() {
     };
 
     useEffect(() => {
+        if (step !== 'complete') {
+            return;
+        }
+
+        clearTimeout(candidateDelayTimerRef.current);
+        clearInterval(candidateTypingTimerRef.current);
+        clearTimeout(candidateFinishTimerRef.current);
+
+        stopCandidateVideoAnimation();
+
+        setCandidateAnswerQueue([]);
+        setActiveCandidateAnswer(null);
+        setTypedCandidateText('');
+        setCandidateTransition('');
+        setIsCandidateSceneReady(false);
+
+        if (
+            answerRecorderRef.current &&
+            answerRecorderRef.current.state !== 'inactive'
+        ) {
+            answerRecorderRef.current.stop();
+        }
+
+        answerStreamRef.current
+            ?.getTracks()
+            .forEach((track) => track.stop());
+
+        answerRecorderRef.current = null;
+        answerStreamRef.current = null;
+        answerChunksRef.current = [];
+
+        isRecordingAnswerRef.current = false;
+        isStartingAnswerRecordingRef.current = false;
+
+        setIsRecordingAnswer(false);
+        setIsStartingAnswerRecording(false);
+        setIsProcessingAnswer(false);
+
+        stopUserCamera();
+
+        if (websocketRef.current?.readyState === WebSocket.OPEN) {
+            websocketRef.current.close();
+        }
+    }, [step]);
+
+    useEffect(() => {
         checkCameraDevice();
     }, []);
 
@@ -3128,7 +3191,97 @@ function Interview() {
 
     return (
         <main className="interview-page">
-            {isCameraChoiceModalOpen && (
+            {step === 'complete' && (
+                <div
+                    className="interview-complete-overlay"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="interview-complete-title"
+                >
+                    <div
+                        className="interview-complete-confetti"
+                        aria-hidden="true"
+                    >
+                        {INTERVIEW_COMPLETE_CONFETTI.map((particle) => (
+                            <span
+                                key={particle.id}
+                                className={`complete-confetti-piece complete-confetti-color-${particle.colorIndex}`}
+                                style={{
+                                    '--confetti-left': particle.left,
+                                    '--confetti-delay': particle.delay,
+                                    '--confetti-duration': particle.duration,
+                                    '--confetti-rotation': particle.rotation,
+                                    '--confetti-drift': particle.drift,
+                                }}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="interview-complete-glow" />
+
+                    <section className="interview-complete-modal">
+                        <div className="interview-complete-icon">
+                            <span>✓</span>
+                        </div>
+
+                        <p className="interview-complete-eyebrow">
+                            INTERVIEW COMPLETE
+                        </p>
+
+                        <h2 id="interview-complete-title">
+                            면접이 끝났습니다
+                        </h2>
+
+                        <p className="interview-complete-description">
+                            모든 질문과 답변이 완료되었습니다.
+                            <br />
+                            면접 결과는 마이페이지에서 확인할 수 있습니다.
+                        </p>
+
+                        <div className="interview-complete-buttons">
+                            <button
+                                type="button"
+                                className="interview-complete-main-button"
+                                onClick={() =>
+                                    handleCompleteNavigation('/main')
+                                }
+                            >
+                                <span className="complete-button-icon">
+                                    🏠
+                                </span>
+
+                                <span>
+                                    <strong>메인</strong>
+                                    <small>메인 화면으로 이동</small>
+                                </span>
+                            </button>
+
+                            <button
+                                type="button"
+                                className="interview-complete-mypage-button"
+                                onClick={() =>
+                                    handleCompleteNavigation('/mypage')
+                                }
+                            >
+                                <span className="complete-button-icon">
+                                    📊
+                                </span>
+
+                                <span>
+                                    <strong>마이페이지</strong>
+                                    <small>면접 결과 확인</small>
+                                </span>
+
+                                <span className="complete-button-arrow">
+                                    →
+                                </span>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
+
+            {isCameraChoiceModalOpen && step !== 'complete' && (
                 <div className="camera-choice-overlay">
                     <div
                         className="camera-choice-modal"
