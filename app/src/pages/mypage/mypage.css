@@ -21,6 +21,61 @@
     font-weight: 800;
 }
 
+.mypage-average-charts-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+
+    flex: 1;
+}
+
+.mypage-chart-limit-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    flex-shrink: 0;
+
+    padding: 4px;
+
+    border: 1px solid #dfe7e2;
+    border-radius: 12px;
+
+    background: #f5f8f6;
+}
+
+.mypage-chart-limit-button {
+    padding: 7px 13px;
+
+    border: 0;
+    border-radius: 9px;
+
+    background: transparent;
+    color: #68736d;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.mypage-chart-limit-button:hover {
+    background: #e4ece7;
+    color: #315d47;
+}
+
+.mypage-chart-limit-button.active {
+    background: #3f7058;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(49, 93, 71, 0.2);
+}
+
 .mypage-main-button,
 .mypage-empty button,
 .mypage-message button,
@@ -431,7 +486,7 @@
     flex-wrap: wrap;
     gap: 12px 24px;
 
-    margin-bottom: 18px;
+    margin-bottom: 8px;
 }
 
 .chart-legend-item {

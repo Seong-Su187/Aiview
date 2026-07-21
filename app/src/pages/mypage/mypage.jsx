@@ -52,7 +52,12 @@ const CHART_SERIES = [
     },
 ];
 
-function InterviewAverageChart({ data }) {
+function InterviewAverageChart({
+    data,
+    sessionLimit,
+    onSessionLimitChange,
+    totalSessionCount,
+}) {
     const width = 1000;
     const height = 360;
 
@@ -137,28 +142,52 @@ function InterviewAverageChart({ data }) {
     return (
         <section className="mypage-average-charts">
             <div className="mypage-average-charts-header">
-                <div className="mypage-average-charts-title">
-                    <h2>면접별 평균 변화</h2>
+                <div className="mypage-average-charts-heading">
+                    <div className="mypage-average-charts-title">
+                        <h2>면접별 평균 변화</h2>
 
-                    <p>
-                        ( 지표별 변화 추세를 0~100 범위로 정규화 )
-                    </p>
-                </div>
+                        <p>
+                            ( 최근 {Math.min(sessionLimit, totalSessionCount)}건 ·
+                            지표별 변화 추세를 0~100 범위로 정규화 )
+                        </p>
+                    </div>
 
-                <div className="mypage-chart-legend">
-                    {CHART_SERIES.map((series) => (
-                        <div
-                            key={series.key}
-                            className={`chart-legend-item ${series.className}`}
-                        >
-                            <span 
-                                className="chart-legend-line"
-                                style={series.color ? { backgroundColor: series.color } : {}} 
-                            />
-                            <strong>{series.label}</strong>
-                        </div>
-                    ))}
+                    <div
+                        className="mypage-chart-limit-buttons"
+                        role="group"
+                        aria-label="그래프에 표시할 면접 개수"
+                    >
+                        {[3, 5, 7].map((limit) => (
+                            <button
+                                key={limit}
+                                type="button"
+                                className={
+                                    sessionLimit === limit
+                                        ? 'mypage-chart-limit-button active'
+                                        : 'mypage-chart-limit-button'
+                                }
+                                onClick={() => onSessionLimitChange(limit)}
+                            >
+                                {limit}건
+                            </button>
+                        ))}
+                    </div>
                 </div>
+            </div>
+
+            <div className="mypage-chart-legend">
+                {CHART_SERIES.map((series) => (
+                    <div
+                        key={series.key}
+                        className={`chart-legend-item ${series.className}`}
+                    >
+                        <span
+                            className="chart-legend-line"
+                            style={series.color ? { backgroundColor: series.color } : {}}
+                        />
+                        <strong>{series.label}</strong>
+                    </div>
+                ))}
             </div>
 
             <div className="mypage-combined-chart">
@@ -333,6 +362,7 @@ function MyPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState('');
     const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+    const [chartSessionLimit, setChartSessionLimit] = useState(3);
 
     useEffect(() => {
         const fetchQaLogs = async () => {
@@ -443,14 +473,30 @@ function MyPage() {
     };
 
     const interviewMetrics = useMemo(() => {
-        return [...sessions]
+        const recentSessions = [...sessions]
+            .sort((a, b) => (
+                new Date(b.createdAt).getTime()
+                - new Date(a.createdAt).getTime()
+            ))
+            .slice(0, chartSessionLimit)
             .sort((a, b) => (
                 new Date(a.createdAt).getTime()
                 - new Date(b.createdAt).getTime()
-            ))
-            .map((session, index) => ({
+            ));
+
+        return recentSessions.map((session) => {
+            const originalIndex = [...sessions]
+                .sort((a, b) => (
+                    new Date(a.createdAt).getTime()
+                    - new Date(b.createdAt).getTime()
+                ))
+                .findIndex(
+                    (item) => item.sessionId === session.sessionId,
+                );
+
+            return {
                 sessionId: session.sessionId,
-                label: `면접 ${index + 1}`,
+                label: `면접 ${originalIndex + 1}`,
 
                 averageScore: calculateAverage(
                     session.qaLogs,
@@ -481,8 +527,9 @@ function MyPage() {
                     session.qaLogs,
                     'gaze_loss_count',
                 ),
-            }));
-    }, [sessions]);
+            };
+        });
+    }, [sessions, chartSessionLimit]);
 
     // PDF 다운로드 핸들러
     const handleDownloadPdf = async () => {
@@ -503,17 +550,17 @@ function MyPage() {
 
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
-            
+
             const link = document.createElement('a');
             link.href = url;
             link.download = `interview_report_${selectedSessionId}.pdf`;
-            
+
             document.body.appendChild(link);
             link.click();
-            
+
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-            
+
         } catch (error) {
             console.error('PDF 다운로드 오류:', error);
             alert(error.message);
@@ -644,7 +691,12 @@ function MyPage() {
                     </aside>
 
                     <section className="mypage-result">
-                        <InterviewAverageChart data={interviewMetrics} />
+                        <InterviewAverageChart
+                            data={interviewMetrics}
+                            sessionLimit={chartSessionLimit}
+                            onSessionLimitChange={setChartSessionLimit}
+                            totalSessionCount={sessions.length}
+                        />
 
                         {selectedSession && (
                             <>
@@ -659,7 +711,7 @@ function MyPage() {
                                         {isDownloadingPdf ? '다운로드 중...' : 'PDF 다운로드'}
                                     </button>
                                 </div>
-                            
+
                                 <div className="mypage-summary">
                                     <div>
                                         <span>지원 직무</span>
