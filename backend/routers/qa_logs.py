@@ -32,6 +32,8 @@ def get_user_qa_logs(
                 q.score,
                 q.feedback,
                 q.created_at,
+                q.filler_word_count,
+                q.gaze_loss_count,
                 s.job_category,
                 s.overall_score,
                 s.overall_feedback,
@@ -60,18 +62,14 @@ def get_user_qa_logs(
                 "session_id": str(row["session_id"]),
                 "question": row["question"],
                 "transcribed_text": row["transcribed_text"],
-                "jitter_shaken_percentage": row[
-                    "jitter_shaken_percentage"
-                ],
-                "shimmer_shaken_percentage": row[
-                    "shimmer_shaken_percentage"
-                ],
-                "speed_difference_wpm": row[
-                    "speed_difference_wpm"
-                ],
+                "jitter_shaken_percentage": row["jitter_shaken_percentage"],
+                "shimmer_shaken_percentage": row["shimmer_shaken_percentage"],
+                "speed_difference_wpm": row["speed_difference_wpm"],
                 "score": row["score"],
                 "feedback": row["feedback"],
                 "created_at": row["created_at"],
+                "filler_word_count": row["filler_word_count"], 
+                "gaze_loss_count": row["gaze_loss_count"],     
                 "job_category": row["job_category"],
                 "overall_score": row["overall_score"],
                 "overall_feedback": row["overall_feedback"],
