@@ -8,26 +8,57 @@ import './interview.css';
 function Interview() {
     const navigate = useNavigate();
 
-    const DEFAULT_INTERVIEWER_VIDEO_URL =
-        '/assets/interviewer-avatar-video.mp4';
+    const INTERVIEWER_DEFAULT_VIDEOS = [
+        {
+            url: '/assets/interviewer-avatar-video1.mp4',
+            probability: 0.4,
+        },
+        {
+            url: '/assets/interviewer-avatar-video2.mp4',
+            probability: 0.4,
+        },
+        {
+            url: '/assets/interviewer-avatar-video3.mp4',
+            probability: 0.1,
+        },
+        {
+            url: '/assets/interviewer-avatar-video4.mp4',
+            probability: 0.1,
+        },
+    ];
+
+    const getRandomInterviewerDefaultVideo = () => {
+        const randomValue = Math.random();
+        let accumulatedProbability = 0;
+
+        for (const video of INTERVIEWER_DEFAULT_VIDEOS) {
+            accumulatedProbability += video.probability;
+
+            if (randomValue < accumulatedProbability) {
+                return video.url;
+            }
+        }
+
+        return INTERVIEWER_DEFAULT_VIDEOS[0].url;
+    };
 
     const fileInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
-    
+
     // 웹캠 및 비전 AI 처리 Refs
-    const userVideoRef = useRef(null); 
+    const userVideoRef = useRef(null);
     const canvasRef = useRef(null);
     const bgImageRef = useRef(new Image());
     const selfieSegmentationRef = useRef(null);
     const renderLoopRef = useRef(null); // 수동 프레임 루프 관리를 위한 Ref
-    
+
     // 시선 영점 조절용 State (2단계)
     const [calibrationPhase, setCalibrationPhase] = useState('hr_ready'); // hr_ready, hr_calibrating, tech_ready, tech_calibrating
-    const [baselines, setBaselines] = useState({ 
-        hrNose: 0.5, hrIris: 0.5, 
-        techNose: 0.5, techIris: 0.5 
+    const [baselines, setBaselines] = useState({
+        hrNose: 0.5, hrIris: 0.5,
+        techNose: 0.5, techIris: 0.5
     });
     const [calibrationCountdown, setCalibrationCountdown] = useState(0);
 
@@ -92,12 +123,17 @@ function Interview() {
     const [isInterviewerStreamVisible, setIsInterviewerStreamVisible] =
         useState(false);
 
+    const [
+        interviewerDefaultVideoUrl,
+        setInterviewerDefaultVideoUrl,
+    ] = useState(() => getRandomInterviewerDefaultVideo());
+
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
 
-    const [isCameraActive, setIsCameraActive] = useState(false); 
+    const [isCameraActive, setIsCameraActive] = useState(false);
 
     const [answerMode, setAnswerMode] = useState('voice');
     const [answerText, setAnswerText] = useState('');
@@ -196,6 +232,20 @@ function Interview() {
         return shuffled;
     };
 
+    const playNextDefaultInterviewerVideo = () => {
+        const defaultVideo =
+            interviewerDefaultVideoRef.current;
+
+        const nextVideoUrl =
+            getRandomInterviewerDefaultVideo();
+
+        setInterviewerDefaultVideoUrl(nextVideoUrl);
+
+        if (defaultVideo) {
+            defaultVideo.currentTime = 0;
+        }
+    };
+
     const restoreDefaultInterviewerVideo = () => {
         const defaultVideo =
             interviewerDefaultVideoRef.current;
@@ -205,6 +255,11 @@ function Interview() {
 
         isInterviewerStreamPlayingRef.current = false;
         setIsInterviewerStreamVisible(false);
+
+        if (interviewerStreamAbortRef.current) {
+            interviewerStreamAbortRef.current.abort();
+            interviewerStreamAbortRef.current = null;
+        }
 
         if (streamVideo) {
             streamVideo.pause();
@@ -220,14 +275,26 @@ function Interview() {
             interviewerVideoUrlRef.current = null;
         }
 
+        const nextVideoUrl =
+            getRandomInterviewerDefaultVideo();
+
+        setInterviewerDefaultVideoUrl(nextVideoUrl);
+
         if (defaultVideo) {
-            defaultVideo.play().catch((error) => {
-                if (error.name !== 'AbortError') {
-                    console.error(
-                        '[interview] 기본 면접관 영상 재생 오류:',
-                        error,
-                    );
-                }
+            defaultVideo.pause();
+            defaultVideo.currentTime = 0;
+
+            requestAnimationFrame(() => {
+                defaultVideo.load();
+
+                defaultVideo.play().catch((error) => {
+                    if (error.name !== 'AbortError') {
+                        console.error(
+                            '[interview] 기본 면접관 영상 복구 재생 오류:',
+                            error,
+                        );
+                    }
+                });
             });
         }
     };
@@ -1302,10 +1369,10 @@ function Interview() {
         if (!isCameraActive) {
             startUserCamera(); // 카메라가 꺼져있다면 강제 실행
         }
-        
+
         setStep('calibrate_vision');
         setCalibrationPhase('hr_ready'); // 첫 번째 단계: 인사 면접관(왼쪽) 대기
-        setCalibrationCountdown(3); 
+        setCalibrationCountdown(3);
         addMessage('system', '시선 추적을 위한 영점 조절을 2단계로 진행합니다. 먼저 왼쪽에 있는 인사 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.');
     };
 
@@ -1352,7 +1419,7 @@ function Interview() {
             });
 
             const data = await response.json();
-            
+
             if (response.ok) {
                 if (type === 'hr') {
                     setBaselines(prev => ({ ...prev, hrNose: data.baseline_nose, hrIris: data.baseline_iris }));
@@ -1948,7 +2015,7 @@ function Interview() {
 
             videoElement.onloadedmetadata = () => {
                 videoElement.play();
-                
+
                 let lastVideoTime = -1;
                 let isProcessing = false; // 중복 처리 방지용 락(Lock)
 
@@ -1970,7 +2037,7 @@ function Interview() {
                     }
                     renderLoopRef.current = requestAnimationFrame(processFrame);
                 };
-                
+
                 renderLoopRef.current = requestAnimationFrame(processFrame);
                 setIsCameraActive(true);
             };
@@ -2016,7 +2083,7 @@ function Interview() {
             interval = setInterval(() => {
                 if (canvasRef.current) {
                     const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.6);
-                    
+
                     // 현재 질문 중인 면접관에 따라 사용할 기준값 선택
                     const activeNose = currentInterviewer === 'tech' ? baselines.techNose : baselines.hrNose;
                     const activeIris = currentInterviewer === 'tech' ? baselines.techIris : baselines.hrIris;
@@ -2028,7 +2095,7 @@ function Interview() {
                             current_target: currentInterviewer, // 현재 쳐다봐야 할 면접관 (서버 참고용)
                             baseline_nose: activeNose,          // 동적으로 바뀌는 실제 검사 기준값
                             baseline_iris: activeIris,
-                            
+
                             // (혹시 모를 서버 로그 기록이나 하위 호환성을 위한 개별 데이터 유지)
                             baseline_nose_hr: baselines.hrNose,
                             baseline_iris_hr: baselines.hrIris,
@@ -2037,7 +2104,7 @@ function Interview() {
                         })
                     );
                 }
-            }, 1000); 
+            }, 1000);
         }
 
         // 의존성 배열에 currentInterviewer를 추가하여, 면접관이 바뀔 때마다 interval이 새로 갱신되도록 합니다.
@@ -2368,7 +2435,7 @@ function Interview() {
                     </button>
                 );
             }
-            
+
             if (calibrationPhase === 'hr_calibrating') {
                 return (
                     <button
@@ -2813,12 +2880,26 @@ function Interview() {
                     <video
                         ref={interviewerDefaultVideoRef}
                         className="interviewer-avatar-video interviewer-default-video"
-                        src={DEFAULT_INTERVIEWER_VIDEO_URL}
+                        src={interviewerDefaultVideoUrl}
                         autoPlay
                         muted
-                        loop
                         playsInline
                         preload="auto"
+                        onEnded={playNextDefaultInterviewerVideo}
+                        onError={(event) => {
+                            const video = event.currentTarget;
+
+                            console.error(
+                                '[interview] 기본 면접관 영상 재생 오류:',
+                                {
+                                    src: video.currentSrc,
+                                    errorCode: video.error?.code,
+                                    errorMessage: video.error?.message,
+                                },
+                            );
+
+                            playNextDefaultInterviewerVideo();
+                        }}
                     />
 
                     <video
