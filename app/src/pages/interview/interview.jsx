@@ -70,6 +70,7 @@ function Interview() {
     const isRecordingAnswerRef = useRef(false);
     const isStartingAnswerRecordingRef = useRef(false);
     const pendingUserAnswerRef = useRef(null);
+    const developerInterviewEndingRef = useRef(false);
 
     const candidateTypingTimerRef = useRef(null);
     const candidateFinishTimerRef = useRef(null);
@@ -92,6 +93,7 @@ function Interview() {
 
     const interviewerPlaybackIdRef = useRef(0);
     const isInterviewerStreamPlayingRef = useRef(false);
+    const isDefaultVideoTransitioningRef = useRef(false);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
@@ -115,7 +117,10 @@ function Interview() {
     const [candidateTransition, setCandidateTransition] = useState('');
     const [isCandidateSceneReady, setIsCandidateSceneReady] = useState(false);
 
-    const interviewerDefaultVideoRef = useRef(null);
+    const interviewerDefaultVideoRefs = [
+        useRef(null),
+        useRef(null),
+    ];
     const interviewerStreamVideoRef = useRef(null);
     const interviewerVideoUrlRef = useRef(null);
     const interviewerStreamAbortRef = useRef(null);
@@ -123,10 +128,12 @@ function Interview() {
     const [isInterviewerStreamVisible, setIsInterviewerStreamVisible] =
         useState(false);
 
-    const [
-        interviewerDefaultVideoUrl,
-        setInterviewerDefaultVideoUrl,
-    ] = useState(() => getRandomInterviewerDefaultVideo());
+    const [interviewerDefaultVideos, setInterviewerDefaultVideos] = useState(() => [
+        getRandomInterviewerDefaultVideo(),
+        '',
+    ]);
+
+    const [activeDefaultVideoIndex, setActiveDefaultVideoIndex] = useState(0);
 
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
@@ -136,6 +143,12 @@ function Interview() {
     const [isCameraActive, setIsCameraActive] = useState(false);
 
     const [answerMode, setAnswerMode] = useState('voice');
+    const [interviewMode, setInterviewMode] = useState(() => {
+        return localStorage.getItem('interviewMode') || 'user';
+    });
+    const interviewModeRef = useRef(
+        localStorage.getItem('interviewMode') || 'user',
+    );
     const [answerText, setAnswerText] = useState('');
 
     const [isBaselineRecording, setIsBaselineRecording] = useState(false);
@@ -153,6 +166,16 @@ function Interview() {
     const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
 
     const [isInterviewerSpeaking, setIsInterviewerSpeaking] = useState(false);
+
+    const changeInterviewMode = (mode) => {
+        if (isRecordingAnswer || isStartingAnswerRecording || isProcessingAnswer) {
+            return;
+        }
+
+        localStorage.setItem('interviewMode', mode);
+        interviewModeRef.current = mode;
+        setInterviewMode(mode);
+    };
 
     const baselineGuideText = `
         안녕하세요. 지금부터 기본 음성 등록을 시작하겠습니다.
@@ -233,23 +256,82 @@ function Interview() {
     };
 
     const playNextDefaultInterviewerVideo = () => {
-        const defaultVideo =
-            interviewerDefaultVideoRef.current;
+        if (isDefaultVideoTransitioningRef.current) {
+            return;
+        }
+
+        isDefaultVideoTransitioningRef.current = true;
+
+        const currentIndex = activeDefaultVideoIndex;
+        const nextIndex = currentIndex === 0 ? 1 : 0;
+
+        const currentVideo =
+            interviewerDefaultVideoRefs[currentIndex].current;
+
+        const nextVideo =
+            interviewerDefaultVideoRefs[nextIndex].current;
+
+        if (!nextVideo) {
+            isDefaultVideoTransitioningRef.current = false;
+            return;
+        }
 
         const nextVideoUrl =
             getRandomInterviewerDefaultVideo();
 
-        setInterviewerDefaultVideoUrl(nextVideoUrl);
+        const handleCanPlay = async () => {
+            nextVideo.removeEventListener(
+                'canplay',
+                handleCanPlay,
+            );
 
-        if (defaultVideo) {
-            defaultVideo.currentTime = 0;
-        }
+            try {
+                nextVideo.currentTime = 0;
+                await nextVideo.play();
+
+                // 다음 영상이 실제로 재생된 다음 화면 전환
+                setActiveDefaultVideoIndex(nextIndex);
+
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (currentVideo) {
+                            currentVideo.pause();
+                            currentVideo.currentTime = 0;
+                        }
+
+                        isDefaultVideoTransitioningRef.current = false;
+                    });
+                });
+            } catch (error) {
+                isDefaultVideoTransitioningRef.current = false;
+
+                if (error.name !== 'AbortError') {
+                    console.error(
+                        '[interview] 다음 기본 영상 재생 오류:',
+                        error,
+                    );
+                }
+            }
+        };
+
+        nextVideo.addEventListener(
+            'canplay',
+            handleCanPlay,
+            { once: true },
+        );
+
+        nextVideo.pause();
+        nextVideo.src = nextVideoUrl;
+        nextVideo.load();
+
+        setInterviewerDefaultVideos((previousVideos) => {
+            const updatedVideos = [...previousVideos];
+            updatedVideos[nextIndex] = nextVideoUrl;
+            return updatedVideos;
+        });
     };
 
     const restoreDefaultInterviewerVideo = () => {
-        const defaultVideo =
-            interviewerDefaultVideoRef.current;
-
         const streamVideo =
             interviewerStreamVideoRef.current;
 
@@ -275,28 +357,7 @@ function Interview() {
             interviewerVideoUrlRef.current = null;
         }
 
-        const nextVideoUrl =
-            getRandomInterviewerDefaultVideo();
-
-        setInterviewerDefaultVideoUrl(nextVideoUrl);
-
-        if (defaultVideo) {
-            defaultVideo.pause();
-            defaultVideo.currentTime = 0;
-
-            requestAnimationFrame(() => {
-                defaultVideo.load();
-
-                defaultVideo.play().catch((error) => {
-                    if (error.name !== 'AbortError') {
-                        console.error(
-                            '[interview] 기본 면접관 영상 복구 재생 오류:',
-                            error,
-                        );
-                    }
-                });
-            });
-        }
+        playNextDefaultInterviewerVideo();
     };
 
     const playInterviewerVideoStream = async (
@@ -1478,6 +1539,8 @@ function Interview() {
                 console.log('WebSocket 수신:', data);
 
                 if (data.type === 'connection_established') {
+                    developerInterviewEndingRef.current = false;
+
                     websocket.send(
                         JSON.stringify({
                             type: 'start_interview',
@@ -1489,6 +1552,10 @@ function Interview() {
                 }
 
                 if (data.type === 'next_question') {
+                    if (developerInterviewEndingRef.current) {
+                        return;
+                    }
+
                     clearTimeout(candidateDelayTimerRef.current);
 
                     pendingUserAnswerRef.current = null;
@@ -1556,6 +1623,25 @@ function Interview() {
                         'system',
                         `답변 평가 ${data.score}점\n${data.feedback}`,
                     );
+
+                    if (
+                        interviewModeRef.current === 'developer' &&
+                        developerInterviewEndingRef.current
+                    ) {
+                        setStep('complete');
+                        setCandidateAnswerQueue([]);
+                        setActiveCandidateAnswer(null);
+                        setTypedCandidateText('');
+                        setCandidateTransition('');
+                        setIsCandidateSceneReady(false);
+
+                        addMessage(
+                            'system',
+                            '개발자 모드이므로 1회 질문·답변 후 면접을 종료합니다.',
+                        );
+
+                        websocket.close();
+                    }
 
                     return;
                 }
@@ -2111,7 +2197,6 @@ function Interview() {
         return () => clearInterval(interval);
     }, [step, isCameraActive, baselines, currentInterviewer]);
 
-
     useEffect(() => {
         return () => {
             stopUserCamera(); // 컴포넌트 언마운트 시 리소스 해제
@@ -2148,6 +2233,10 @@ function Interview() {
             );
 
             return;
+        }
+
+        if (interviewModeRef.current === 'developer') {
+            developerInterviewEndingRef.current = true;
         }
 
         websocket.send(
@@ -2853,54 +2942,117 @@ function Interview() {
 
     return (
         <main className="interview-page">
-            <div className="temporary-mode-toggle">
-                <span>임시 답변 모드</span>
+            <div className="temporary-mode-panel">
+                <div className="temporary-mode-row">
+                    <span>답변 모드</span>
 
-                <button
-                    type="button"
-                    className={answerMode === 'voice' ? 'active' : ''}
-                    onClick={() => setAnswerMode('voice')}
-                    disabled={isRecordingAnswer}
-                >
-                    음성
-                </button>
+                    <div className="temporary-mode-buttons">
+                        <button
+                            type="button"
+                            className={answerMode === 'voice' ? 'active' : ''}
+                            onClick={() => setAnswerMode('voice')}
+                            disabled={isRecordingAnswer}
+                        >
+                            음성
+                        </button>
 
-                <button
-                    type="button"
-                    className={answerMode === 'text' ? 'active' : ''}
-                    onClick={() => setAnswerMode('text')}
-                    disabled={isRecordingAnswer}
-                >
-                    텍스트
-                </button>
+                        <button
+                            type="button"
+                            className={answerMode === 'text' ? 'active' : ''}
+                            onClick={() => setAnswerMode('text')}
+                            disabled={isRecordingAnswer}
+                        >
+                            텍스트
+                        </button>
+                    </div>
+                </div>
+
+                <div className="temporary-mode-row">
+                    <span>진행 모드</span>
+
+                    <div className="temporary-mode-buttons">
+                        <button
+                            type="button"
+                            className={interviewMode === 'developer' ? 'active' : ''}
+                            onClick={() => changeInterviewMode('developer')}
+                            disabled={
+                                isRecordingAnswer ||
+                                isStartingAnswerRecording ||
+                                isProcessingAnswer
+                            }
+                        >
+                            개발자
+                        </button>
+
+                        <button
+                            type="button"
+                            className={interviewMode === 'user' ? 'active' : ''}
+                            onClick={() => changeInterviewMode('user')}
+                            disabled={
+                                isRecordingAnswer ||
+                                isStartingAnswerRecording ||
+                                isProcessingAnswer
+                            }
+                        >
+                            사용자
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <section className="interview-left">
                 <div className="interviewer-video-layer">
-                    <video
-                        ref={interviewerDefaultVideoRef}
-                        className="interviewer-avatar-video interviewer-default-video"
-                        src={interviewerDefaultVideoUrl}
-                        autoPlay
-                        muted
-                        playsInline
-                        preload="auto"
-                        onEnded={playNextDefaultInterviewerVideo}
-                        onError={(event) => {
-                            const video = event.currentTarget;
+                    {interviewerDefaultVideos.map((videoUrl, index) => (
+                        <video
+                            key={index}
+                            ref={interviewerDefaultVideoRefs[index]}
+                            className={`interviewer-avatar-video interviewer-default-video ${activeDefaultVideoIndex === index
+                                ? 'visible'
+                                : ''
+                                }`}
+                            src={videoUrl || undefined}
+                            autoPlay={index === 0}
+                            muted
+                            playsInline
+                            preload="auto"
+                            onTimeUpdate={(event) => {
+                                if (activeDefaultVideoIndex !== index) {
+                                    return;
+                                }
 
-                            console.error(
-                                '[interview] 기본 면접관 영상 재생 오류:',
-                                {
-                                    src: video.currentSrc,
-                                    errorCode: video.error?.code,
-                                    errorMessage: video.error?.message,
-                                },
-                            );
+                                const video = event.currentTarget;
 
-                            playNextDefaultInterviewerVideo();
-                        }}
-                    />
+                                if (
+                                    Number.isFinite(video.duration) &&
+                                    video.duration > 0 &&
+                                    video.duration - video.currentTime <= 0.5
+                                ) {
+                                    playNextDefaultInterviewerVideo();
+                                }
+                            }}
+                            onEnded={(event) => {
+                                if (
+                                    activeDefaultVideoIndex === index &&
+                                    !isDefaultVideoTransitioningRef.current
+                                ) {
+                                    event.currentTarget.currentTime = 0;
+                                    event.currentTarget.play().catch(() => { });
+                                }
+                            }}
+                            onError={(event) => {
+                                const video = event.currentTarget;
+
+                                console.error(
+                                    '[interview] 기본 면접관 영상 재생 오류:',
+                                    {
+                                        src: video.currentSrc,
+                                        errorCode: video.error?.code,
+                                        errorMessage: video.error?.message,
+                                    },
+                                );
+                            }}
+                        />
+                    ))}
 
                     <video
                         ref={interviewerStreamVideoRef}

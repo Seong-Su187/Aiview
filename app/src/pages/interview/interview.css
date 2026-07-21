@@ -87,6 +87,39 @@
     object-position: center;
 }
 
+.interviewer-default-video {
+    z-index: 1;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+
+    background-image: url('/assets/interviewer-avatar-bg.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.interviewer-default-video.visible {
+    opacity: 1;
+}
+
+.interviewer-stream-video {
+    z-index: 2;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s linear;
+    background: transparent;
+    will-change: opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+.interviewer-stream-video.visible {
+    opacity: 1;
+}
+
 /* 답변 중인 지원자 영상 */
 .candidate-answer-video {
     position: absolute;
@@ -440,13 +473,15 @@
     object-fit: cover;
     transform: scaleX(-1);
     /* 좌우 반전(거울 모드) */
-    opacity: 0; /* 카메라가 꺼져있을 때 투명하게 설정 */
+    opacity: 0;
+    /* 카메라가 꺼져있을 때 투명하게 설정 */
     transition: opacity 0.3s ease;
     background-color: #0a0d15;
 }
 
 .user-video.active {
-    opacity: 1; /* 카메라가 활성화되면 부드럽게 나타남 */
+    opacity: 1;
+    /* 카메라가 활성화되면 부드럽게 나타남 */
 }
 
 .camera-placeholder {
@@ -504,6 +539,7 @@
 .camera-toggle-button.camera-off {
     background: rgba(215, 55, 73, 0.88);
 }
+
 /* ------------------------ */
 
 .chat-area {
@@ -976,29 +1012,43 @@
     background: rgba(85, 118, 255, 0.65);
 }
 
-/* 개발 중 사용하는 임시 답변 모드 전환 버튼 */
-.temporary-mode-toggle {
+/* 개발 중 사용하는 답변/진행 모드 전환 패널 */
+.temporary-mode-panel {
     position: fixed;
     top: 18px;
     right: 438px;
     z-index: 100;
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 8px;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 230px;
+    padding: 9px;
     border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 12px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
+    border-radius: 14px;
     background: rgba(10, 13, 21, 0.82);
     backdrop-filter: blur(10px);
 }
 
-.temporary-mode-toggle span {
-    margin: 0 5px 0 3px;
+.temporary-mode-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 
-.temporary-mode-toggle button {
+.temporary-mode-row>span {
+    flex: 0 0 58px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+}
+
+.temporary-mode-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.temporary-mode-buttons button {
+    min-width: 62px;
     padding: 7px 11px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 8px;
@@ -1010,13 +1060,13 @@
     cursor: pointer;
 }
 
-.temporary-mode-toggle button.active {
+.temporary-mode-buttons button.active {
     border-color: #8067ef;
     color: #ffffff;
     background: #6246d9;
 }
 
-.temporary-mode-toggle button:disabled {
+.temporary-mode-buttons button:disabled {
     cursor: not-allowed;
     opacity: 0.45;
 }
