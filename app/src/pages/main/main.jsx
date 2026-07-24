@@ -230,6 +230,14 @@ const scenarioConnections = [
     { from: '15', to: '16' },
 ];
 
+const getScenarioOrder = (id) => {
+    const baseOrder = Number(id.split('-')[0]);
+
+    return baseOrder >= 14
+        ? baseOrder + 1
+        : baseOrder;
+};
+
 const buildPolylinePath = (points) => {
     if (!points.length) {
         return '';
@@ -398,6 +406,7 @@ function Main({ mainVideoUrl }) {
     const videoRef = useRef(null);
     const messageTimerRef = useRef([]);
     const section2Ref = useRef(null);
+    const section3Ref = useRef(null);
     const scenarioMapContentRef = useRef(null);
     const scenarioPreviewRefs = useRef({});
 
@@ -411,9 +420,9 @@ function Main({ mainVideoUrl }) {
     const [isVideoEnded, setIsVideoEnded] = useState(false);
     const [isScrolled, setIsScrolled] = useState(false);
     const [isFaqVisible, setIsFaqVisible] = useState(false);
-    const [faqAnimationCycle, setFaqAnimationCycle] = useState(0);
     const [selectedScenarioStep, setSelectedScenarioStep] = useState(null);
     const [scenarioAnchors, setScenarioAnchors] = useState({});
+    const [isScenarioVisible, setIsScenarioVisible] = useState(false);
 
     useEffect(() => {
         if (isFirstVisit) {
@@ -535,6 +544,31 @@ function Main({ mainVideoUrl }) {
     }, []);
 
     useEffect(() => {
+        const section3 = section3Ref.current;
+        const mainPage = document.querySelector('.main-page');
+
+        if (!section3 || !mainPage) {
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsScenarioVisible(entry.intersectionRatio >= 0.35);
+            },
+            {
+                root: mainPage,
+                threshold: 0.35,
+            },
+        );
+
+        observer.observe(section3);
+
+        return () => {
+            observer.disconnect();
+        };
+    }, []);
+
+    useEffect(() => {
         if (!selectedScenarioStep) {
             return;
         }
@@ -553,20 +587,6 @@ function Main({ mainVideoUrl }) {
             window.removeEventListener('keydown', handleKeyDown);
         };
     }, [selectedScenarioStep]);
-
-    useEffect(() => {
-        if (!isFaqVisible) {
-            return;
-        }
-
-        const interval = setInterval(() => {
-            setFaqAnimationCycle((prev) => prev + 1);
-        }, 9200);
-
-        return () => {
-            clearInterval(interval);
-        };
-    }, [isFaqVisible]);
 
     useEffect(() => {
         const mapContent = scenarioMapContentRef.current;
@@ -964,10 +984,7 @@ function Main({ mainVideoUrl }) {
                         <h2>궁금한 내용을 확인해 보세요</h2>
                     </div>
 
-                    <div
-                        key={faqAnimationCycle}
-                        className="main-faq-groups"
-                    >
+                    <div className="main-faq-groups">
                         {faqGroups.map((group, groupIndex) => {
                             return (
                                 <article
@@ -1024,16 +1041,16 @@ function Main({ mainVideoUrl }) {
                 </div>
             </section>
 
-            <section className="main-card section3">
+            <section
+                ref={section3Ref}
+                className={`main-card section3 ${isScenarioVisible ? 'scenario-visible' : ''
+                    }`}
+            >
                 <div className="main-scenario-background" aria-hidden="true" />
 
                 <div className="main-scenario-container">
                     <header className="main-scenario-heading">
-                        <div>
-                            <span className="main-scenario-eyebrow">SERVICE FLOW MAP</span>
-                            <h2>AI 모의면접 진행 시나리오</h2>
-                            <p>단계가 분기되고 다시 합쳐지는 전체 흐름을 한눈에 확인할 수 있습니다.</p>
-                        </div>
+                        <h2>AI 모의면접 진행 시나리오</h2>
                     </header>
 
                     <div className="main-scenario-map">
@@ -1117,10 +1134,17 @@ function Main({ mainVideoUrl }) {
                                             return null;
                                         }
 
+                                        const connectionOrder = getScenarioOrder(to.id);
+
                                         return (
                                             <path
                                                 key={`${fromId}-${toId}`}
+                                                className="main-scenario-connection scenario-appear"
                                                 d={pathData}
+                                                style={{
+                                                    '--scenario-delay':
+                                                        `${(connectionOrder - 1) * 0.55}s`,
+                                                }}
                                                 markerEnd={
                                                     isVerticalConnection
                                                         ? 'url(#scenarioArrowVertical)'
@@ -1132,7 +1156,10 @@ function Main({ mainVideoUrl }) {
                                 )}
 
                                 <path
-                                    className="main-scenario-loop-line"
+                                    className="main-scenario-loop-line main-scenario-connection scenario-appear"
+                                    style={{
+                                        '--scenario-delay': `${(14 - 1) * 0.55}s`,
+                                    }}
                                     d="M 82 84 C 99 97, 103 68, 94 64"
                                     markerEnd="url(#scenarioArrowVertical)"
                                 />
@@ -1143,57 +1170,67 @@ function Main({ mainVideoUrl }) {
                             <div className="main-scenario-zone zone-interview">INTERVIEW</div>
                             <div className="main-scenario-zone zone-result">RESULT</div>
 
-                            {interviewScenarioSteps.map((step, index) => (
-                                <article
-                                    key={`${step.id}-${step.title}`}
-                                    className={`main-scenario-step ${step.repeat ? 'repeat-step' : ''}`}
-                                    style={{
-                                        '--scenario-delay': `${index * 0.025}s`,
-                                        '--scenario-x': `${step.x}%`,
-                                        '--scenario-y': `${step.y}%`,
-                                    }}
-                                >
-                                    <button
-                                        ref={(element) => {
-                                            if (element) {
-                                                scenarioPreviewRefs.current[step.id] = element;
-                                            } else {
-                                                delete scenarioPreviewRefs.current[step.id];
-                                            }
+                            {interviewScenarioSteps.map((step) => {
+                                const scenarioOrder = getScenarioOrder(step.id);
+
+                                return (
+                                    <article
+                                        key={`${step.id}-${step.title}`}
+                                        className={`main-scenario-step scenario-appear ${step.repeat ? 'repeat-step' : ''
+                                            }`}
+                                        style={{
+                                            '--scenario-delay': `${(scenarioOrder - 1) * 0.55}s`,
+                                            '--scenario-x': `${step.x}%`,
+                                            '--scenario-y': `${step.y}%`,
                                         }}
-                                        type="button"
-                                        className="main-scenario-preview"
-                                        onClick={() => setSelectedScenarioStep(step)}
-                                        aria-label={`${step.id}단계 ${step.title} 화면 크게 보기`}
                                     >
-                                        <img
-                                            src={step.image}
-                                            alt={`${step.title} 실행 화면`}
-                                            onError={(event) => {
-                                                event.currentTarget.style.display = 'none';
+                                        <button
+                                            ref={(element) => {
+                                                if (element) {
+                                                    scenarioPreviewRefs.current[step.id] = element;
+                                                } else {
+                                                    delete scenarioPreviewRefs.current[step.id];
+                                                }
                                             }}
-                                        />
-                                        <span className="main-scenario-placeholder">
-                                            <span>SCREENSHOT</span>
-                                            <small>{step.image}</small>
-                                        </span>
-                                        <span className="main-scenario-zoom" aria-hidden="true">＋</span>
-                                    </button>
+                                            type="button"
+                                            className="main-scenario-preview"
+                                            onClick={() => setSelectedScenarioStep(step)}
+                                            aria-label={`${step.id}단계 ${step.title} 화면 크게 보기`}
+                                        >
+                                            <img
+                                                src={step.image}
+                                                alt={`${step.title} 실행 화면`}
+                                                onError={(event) => {
+                                                    event.currentTarget.style.display = 'none';
+                                                }}
+                                            />
+                                            <span className="main-scenario-placeholder">
+                                                <span>SCREENSHOT</span>
+                                                <small>{step.image}</small>
+                                            </span>
+                                            <span className="main-scenario-zoom" aria-hidden="true">＋</span>
+                                        </button>
 
-                                    <div className="main-scenario-step-info">
-                                        <div className="main-scenario-step-topline">
-                                            <span className="main-scenario-number">{step.id}</span>
-                                            <span className="main-scenario-phase">{step.phase}</span>
+                                        <div className="main-scenario-step-info">
+                                            <div className="main-scenario-step-topline">
+                                                <span className="main-scenario-number">{step.id}</span>
+                                                <span className="main-scenario-phase">{step.phase}</span>
+                                            </div>
+                                            <h3>{step.title}</h3>
+                                            {step.branch && (
+                                                <span className="main-scenario-branch">{step.branch}</span>
+                                            )}
                                         </div>
-                                        <h3>{step.title}</h3>
-                                        {step.branch && (
-                                            <span className="main-scenario-branch">{step.branch}</span>
-                                        )}
-                                    </div>
-                                </article>
-                            ))}
+                                    </article>
+                                );
+                            })}
 
-                            <div className="main-scenario-loop-label">
+                            <div
+                                className="main-scenario-loop-label scenario-appear"
+                                style={{
+                                    '--scenario-delay': `${(14 - 1) * 0.55}s`,
+                                }}
+                            >
                                 <strong>5회 반복</strong>
                                 <span>면접 답변 · 피드백</span>
                             </div>

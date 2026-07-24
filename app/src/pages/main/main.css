@@ -852,14 +852,16 @@
     height: 100%;
 }
 
-.main-faq-heading {
+.main-faq-heading,
+.main-scenario-heading {
     flex-shrink: 0;
 
     margin-bottom: 22px;
     text-align: center;
 }
 
-.main-faq-heading h2 {
+.main-faq-heading h2,
+.main-scenario-heading h2 {
     margin: 0;
 
     color: #202522;
@@ -1221,7 +1223,7 @@
 
 .section3 {
     box-sizing: border-box;
-    padding: 24px 30px 22px;
+    padding: 34px 30px 22px;
 }
 
 .main-scenario-background {
@@ -1249,43 +1251,6 @@
     height: 100%;
     max-width: 1860px;
     margin: 0 auto;
-}
-
-.main-scenario-heading {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
-
-    flex-shrink: 0;
-    margin-bottom: 8px;
-}
-
-.main-scenario-eyebrow {
-    display: block;
-    margin-bottom: 4px;
-
-    color: #5d8f78;
-    font-size: 10px;
-    font-weight: 900;
-    letter-spacing: 0.2em;
-}
-
-.main-scenario-heading h2 {
-    margin: 0;
-
-    color: #202522;
-    font-size: clamp(24px, 1.9vw, 34px);
-    font-weight: 850;
-    letter-spacing: -0.045em;
-}
-
-.main-scenario-heading p {
-    margin: 5px 0 0;
-
-    color: rgba(32, 37, 34, 0.58);
-    font-size: 12px;
-    font-weight: 600;
 }
 
 .main-scenario-map {
@@ -1326,6 +1291,7 @@
 
 .main-scenario-lines>path {
     fill: none;
+    opacity: 0;
 
     stroke: #487460;
     stroke-width: 1.8;
@@ -1398,8 +1364,6 @@
 
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.92);
-    animation: mainScenarioStepAppear 0.45s ease forwards;
-    animation-delay: var(--scenario-delay);
 
     transition:
         transform 0.22s ease,
@@ -1407,10 +1371,44 @@
         border-color 0.22s ease;
 }
 
+/* section3가 화면에 들어오면 단계별로 한 번 재생 */
+.section3.scenario-visible .main-scenario-step {
+    animation: mainScenarioStepAppear 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+
+    animation-delay: var(--scenario-delay);
+}
+
+/* 다른 섹션으로 이동하면 초기 상태로 복원 */
+.section3:not(.scenario-visible) .main-scenario-step {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+    animation: none;
+}
+
 @keyframes mainScenarioStepAppear {
     to {
         opacity: 1;
         transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+.scenario-appear {
+    opacity: 0;
+}
+
+.section3.scenario-visible .scenario-appear {
+    animation: mainScenarioAppear 0.55s ease forwards;
+    animation-delay: var(--scenario-delay);
+}
+
+.section3:not(.scenario-visible) .scenario-appear {
+    opacity: 0;
+    animation: none;
+}
+
+@keyframes mainScenarioAppear {
+    to {
+        opacity: 1;
     }
 }
 
