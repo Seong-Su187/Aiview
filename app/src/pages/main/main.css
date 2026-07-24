@@ -1371,23 +1371,54 @@
         border-color 0.22s ease;
 }
 
-/* section3가 화면에 들어오면 단계별로 한 번 재생 */
+/* section3 진입 시 모든 카드를 먼저 표시 */
 .section3.scenario-visible .main-scenario-step {
-    animation: mainScenarioStepAppear 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation:
+        mainScenarioStepReveal 0.45s ease forwards,
+        mainScenarioStepFocus 0.65s ease forwards;
 
-    animation-delay: var(--scenario-delay);
+    animation-delay:
+        0.15s,
+        var(--scenario-delay);
 }
 
 /* 다른 섹션으로 이동하면 초기 상태로 복원 */
 .section3:not(.scenario-visible) .main-scenario-step {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.92);
+    transform: translate(-50%, -50%) scale(0.96);
     animation: none;
 }
 
-@keyframes mainScenarioStepAppear {
+/* 전체 카드가 거의 동시에 등장 */
+@keyframes mainScenarioStepReveal {
     to {
+        opacity: 0.55;
+        filter: grayscale(1) brightness(0.85);
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* 진행 순서에 맞춰 카드가 잠깐 강조됨 */
+@keyframes mainScenarioStepFocus {
+    0% {
+        opacity: 0.55;
+        filter: grayscale(1) brightness(0.85);
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    45% {
         opacity: 1;
+        filter: grayscale(0) brightness(1);
+        transform: translate(-50%, -50%) scale(1.1);
+
+        box-shadow:
+            0 16px 30px rgba(30, 46, 38, 0.16),
+            inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    }
+
+    100% {
+        opacity: 1;
+        filter: grayscale(0) brightness(1);
         transform: translate(-50%, -50%) scale(1);
     }
 }
@@ -1396,9 +1427,10 @@
     opacity: 0;
 }
 
-.section3.scenario-visible .scenario-appear {
-    animation: mainScenarioAppear 0.55s ease forwards;
-    animation-delay: var(--scenario-delay);
+/* 카드와 연결선을 제외한 반복 안내 표시 */
+.section3.scenario-visible .scenario-appear:not(.main-scenario-connection):not(.main-scenario-step) {
+    animation: mainScenarioAppear 0.45s ease forwards;
+    animation-delay: 0.3s;
 }
 
 .section3:not(.scenario-visible) .scenario-appear {
@@ -1407,6 +1439,27 @@
 }
 
 @keyframes mainScenarioAppear {
+    to {
+        opacity: 1;
+    }
+}
+
+/* 연결선은 전체 지도가 열린 뒤 자연스럽게 한 번에 표시 */
+.section3.scenario-visible .main-scenario-connection {
+    animation: mainScenarioLineAppear 0.7s ease forwards;
+    animation-delay: 0.3s;
+}
+
+.section3:not(.scenario-visible) .main-scenario-connection {
+    opacity: 0;
+    animation: none;
+}
+
+@keyframes mainScenarioLineAppear {
+    from {
+        opacity: 0;
+    }
+
     to {
         opacity: 1;
     }
